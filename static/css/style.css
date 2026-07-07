@@ -178,6 +178,41 @@ a {
     border: 1px solid #f5c6cb;
 }
 
+.alert-success {
+    background-color: #e8f5e9;
+    color: #1b5e20;
+    border: 1px solid #c8e6c9;
+}
+
+/* ===== 表单页脚（登录/注册页切换链接） ===== */
+.form-footer-text {
+    text-align: center;
+    margin-top: 20px;
+    font-size: 0.9rem;
+    color: #666;
+}
+
+.form-footer-link {
+    color: #667eea;
+    font-weight: 500;
+}
+
+.form-footer-link:hover {
+    text-decoration: underline;
+}
+
+/* ===== 必填标记 ===== */
+.required {
+    color: #e74c3c;
+}
+
+/* ===== 错误码（404/500 页面） ===== */
+.error-code {
+    font-size: 4rem;
+    color: #667eea;
+    margin-bottom: 4px;
+}
+
 /* ===== 信息表格 ===== */
 .user-info {
     margin-top: 8px;
@@ -212,4 +247,58 @@ a {
 .login-card {
     max-width: 420px;
     margin: 60px auto 0;
+}
+
+/* ===== 响应式设计 ===== */
+@media (max-width: 600px) {
+    .navbar {
+        padding: 0 12px;
+        height: 52px;
+    }
+
+    .navbar-brand {
+        font-size: 1rem;
+    }
+
+    .navbar-menu {
+        gap: 8px;
+    }
+
+    .navbar-link {
+        font-size: 0.8rem;
+        padding: 4px 10px;
+    }
+
+    .navbar-welcome {
+        font-size: 0.8rem;
+    }
+
+    .container {
+        margin: 20px auto;
+    }
+
+    .card {
+        padding: 20px;
+    }
+
+    .card-title {
+        font-size: 1.15rem;
+    }
+
+    .info-label {
+        width: 60px;
+        font-size: 0.85rem;
+    }
+
+    .info-value {
+        font-size: 0.85rem;
+    }
+
+    .login-card {
+        margin-top: 30px;
+    }
+
+    .error-code {
+        font-size: 3rem;
+    }
 }
