@@ -1,23 +1,38 @@
 # 项目评估与改进报告 — Flask 用户管理系统
 
+> **课程**: 网络空间安全实训
 > **项目**: flask-user-login
 > **报告日期**: 2026-07-07
-> **最终修复合入日期**: 2026-07-07
+> **迭代次数**: 3 轮（漏洞修复 → 架构改进 → 安全增强）
 
 ---
 
-## 第一部分：安全漏洞（已修复）
+## 目录
+
+1. [第一轮：安全漏洞修复（7 项）](#第一部分安全漏洞-7-项)
+2. [第二轮：架构与代码质量改进（9 项）](#第二部分架构与代码质量问题-9-项)
+3. [第三轮：安全增强（新增 6 项）](#第三部分安全增强新增-6-项)
+4. [OWASP Top 10 映射](#第四部分owasp-top-10-映射)
+5. [攻击复现步骤](#第五部分攻击复现步骤)
+6. [最终修复清单](#第六部分最终修复清单)
+7. [项目工程规范](#第七部分项目工程规范)
+
+---
+
+## 第一部分：安全漏洞（7 项）
 
 ### 🔴 [高危] 漏洞 1：密码明文存储
 
 | 项目 | 内容 |
 |------|------|
+| **OWASP 分类** | A02:2021 – 密码学失败 |
 | **文件** | `app.py` |
+| **攻击复现** | 见 [5.1 密码泄露攻击](#51-密码泄露攻击) |
 | **描述** | `USERS` 字典中密码以明文形式存储，未做任何哈希处理 |
-| **代码片段（修复前）** | `"admin": { "password": "admin123", ... }` |
+| **代码（修复前）** | `"admin": { "password": "admin123", ... }` |
 | **危害** | 数据库泄露后所有用户密码直接暴露 |
 | **修复方式** | 使用 `werkzeug.security.generate_password_hash()` 将密码以哈希值存储 |
-| **代码片段（修复后）** | `"admin": { "password": generate_password_hash("admin123"), ... }` |
+| **代码（修复后）** | `"admin": { "password": generate_password_hash("admin123"), ... }` |
 | **状态** | ✅ **已修复** |
 
 ---
@@ -26,12 +41,14 @@
 
 | 项目 | 内容 |
 |------|------|
+| **OWASP 分类** | A02:2021 – 密码学失败 |
 | **文件** | `app.py` |
+| **攻击复现** | 见 [5.1 密码泄露攻击](#51-密码泄露攻击) |
 | **描述** | 登录验证时直接用 `==` 比较明文密码字符串 |
-| **代码片段（修复前）** | `USERS[username]["password"] == password` |
+| **代码（修复前）** | `USERS[username]["password"] == password` |
 | **危害** | 配合漏洞 1，攻击者可以直接用明文密码登录任意账户 |
 | **修复方式** | 使用 `werkzeug.security.check_password_hash()` 进行哈希值比对 |
-| **代码片段（修复后）** | `check_password_hash(USERS[username]["password"], password)` |
+| **代码（修复后）** | `check_password_hash(USERS[username]["password"], password)` |
 | **状态** | ✅ **已修复** |
 
 ---
@@ -40,12 +57,14 @@
 
 | 项目 | 内容 |
 |------|------|
+| **OWASP 分类** | A04:2021 – 不安全的设计 |
 | **文件** | `app.py` + `templates/index.html` |
+| **攻击复现** | 见 [5.2 敏感信息泄露攻击](#52-敏感信息泄露攻击) |
 | **描述** | 登录后将包含密码字段的完整用户信息传入模板，首页将密码渲染在 HTML 中 |
-| **代码片段（修复前）** | `{{ user.password }}` |
+| **代码（修复前）** | `{{ user.password }}` |
 | **危害** | 任何路过屏幕的人都能看到用户的密码；浏览器历史也会保存密码 |
 | **修复方式** | 提取 `get_safe_user()` 函数，传递模板前自动过滤 `password` 字段 |
-| **代码片段（修复后）** | `{k: v for k, v in user.items() if k != "password"}` |
+| **代码（修复后）** | `{k: v for k, v in user.items() if k != "password"}` |
 | **状态** | ✅ **已修复** |
 
 ---
@@ -54,12 +73,14 @@
 
 | 项目 | 内容 |
 |------|------|
+| **OWASP 分类** | A05:2021 – 安全配置错误 |
 | **文件** | `app.py` |
+| **攻击复现** | 见 [5.3 Secret Key 泄露攻击](#53-secret-key-泄露攻击) |
 | **描述** | Flask 的 `secret_key` 设置为固定的字符串 `"dev-key-2025"` |
-| **代码片段（修复前）** | `app.secret_key = "dev-key-2025"` |
+| **代码（修复前）** | `app.secret_key = "dev-key-2025"` |
 | **危害** | 攻击者可用固定 secret key 伪造任意用户的 session cookie |
-| **修复方式** | 从环境变量 `SECRET_KEY` 读取，不存在时则使用默认值 |
-| **代码片段（修复后）** | `app.secret_key = os.environ.get("SECRET_KEY", "dev-key-2025")` |
+| **修复方式** | 从环境变量读取，无回退值，启动时强制检查 |
+| **代码（修复后）** | `app.secret_key = os.environ.get("SECRET_KEY")` + 空值检查报错 |
 | **状态** | ✅ **已修复** |
 
 ---
@@ -68,11 +89,12 @@
 
 | 项目 | 内容 |
 |------|------|
+| **OWASP 分类** | A01:2021 – 访问控制失效 |
 | **文件** | `app.py` |
 | **描述** | 首页仅在视图函数内部手动检查 session，没有可复用的登录装饰器 |
 | **危害** | 后续新增路由容易遗忘登录验证，导致未授权用户访问受保护页面 |
 | **修复方式** | 编写 `login_required` 装饰器，首页路由添加 `@login_required` 注解 |
-| **代码片段（修复后）** | `@login_required` / `def index():` |
+| **代码（修复后）** | `@app.route("/")` / `@login_required` / `def index():` |
 | **状态** | ✅ **已修复** |
 
 ---
@@ -81,12 +103,13 @@
 
 | 项目 | 内容 |
 |------|------|
+| **OWASP 分类** | A05:2021 – 安全配置错误 |
 | **文件** | `app.py` |
 | **描述** | 使用 `debug=True` 模式运行，且监听 `0.0.0.0` |
-| **代码片段（修复前）** | `app.run(debug=True, host="0.0.0.0", port=5000)` |
-| **危害** | 页面报错时暴露完整 Python 调用栈和源码；Debugger PIN 可能被利用执行任意代码 |
+| **代码（修复前）** | `app.run(debug=True, host="0.0.0.0", port=5000)` |
+| **危害** | 页面报错时暴露完整 Python 调用栈和源码；Debugger PIN 可被利用执行任意代码 |
 | **修复方式** | debug 模式由环境变量 `FLASK_DEBUG` 控制，默认关闭 |
-| **代码片段（修复后）** | `app.run(debug=debug_mode, ...)` |
+| **代码（修复后）** | `app.run(debug=debug_mode, ...)` |
 | **状态** | ✅ **已修复** |
 
 ---
@@ -95,28 +118,30 @@
 
 | 项目 | 内容 |
 |------|------|
+| **OWASP 分类** | A05:2021 – 安全配置错误 |
 | **文件** | `templates/login.html` |
+| **攻击复现** | 见 [5.4 信息泄露攻击（HTML 注释）](#54-信息泄露攻击html-注释) |
 | **描述** | 页面源码中包含 HTML 注释，写明了管理员用户名和密码 |
-| **代码片段（修复前）** | `<!-- 调试信息 - 默认管理员账号 用户名: admin 密码: admin123 -->` |
+| **代码（修复前）** | `<!-- 调试信息 - 默认管理员账号 用户名: admin 密码: admin123 -->` |
 | **危害** | 查看网页源代码即可获得管理员密码 |
 | **修复方式** | 替换为不暴露密码的安全提示 |
-| **代码片段（修复后）** | `<!-- 调试信息：默认账号请在部署后修改密码 -->` |
+| **代码（修复后）** | `<!-- 调试信息：默认账号请在部署后修改密码 -->` |
 | **状态** | ✅ **已修复** |
 
 ---
 
-## 第二部分：架构与代码质量问题（已修复）
+## 第二部分：架构与代码质量问题（9 项）
 
 ### 🔴 [严重] 问题 8：违反 POST/REDIRECT/GET（PRG）模式
 
 | 项目 | 内容 |
 |------|------|
 | **文件** | `app.py` 登录路由 |
-| **描述** | 登录成功（POST）后直接 `render_template("index.html")` 渲染页面，而不是重定向到首页 |
-| **代码片段（修复前）** | `return render_template("index.html", user=safe_info)` |
-| **危害** | 用户刷新页面时，浏览器弹出"确认重新提交表单"的警告；首页信息由登录路由代劳获取，逻辑混乱 |
-| **修复方式** | POST 成功后只存 session，然后 `redirect(url_for("index"))`，让首页视图自己从 session 中获取用户信息 |
-| **代码片段（修复后）** | `session["username"] = username` / `return redirect(url_for("index"))` |
+| **描述** | 登录成功（POST）后直接 `render_template("index.html")`，而非重定向到首页 |
+| **代码（修复前）** | `return render_template("index.html", user=safe_info)` |
+| **危害** | 刷新页面弹出"确认重新提交表单"警告，首页信息由登录路由代劳获取，逻辑混乱 |
+| **修复方式** | POST 成功后存 session，重定向到首页 |
+| **代码（修复后）** | `return redirect(url_for("index"))` |
 | **状态** | ✅ **已修复** |
 
 ---
@@ -125,11 +150,10 @@
 
 | 项目 | 内容 |
 |------|------|
+| **OWASP 分类** | A01:2021 – 访问控制失效 |
 | **文件** | `app.py` + `templates/login.html` |
-| **描述** | 登录表单没有 CSRF token，攻击者可构造恶意页面诱导用户提交 |
-| **危害** | 跨站请求伪造攻击，攻击者可利用用户身份执行非意愿操作 |
+| **描述** | 登录表单没有 CSRF token |
 | **修复方式** | 使用 `secrets.token_hex(32)` 生成 CSRF token 存入 session，表单添加隐藏字段，POST 时校验 |
-| **代码片段（修复后）** | `<input type="hidden" name="_csrf_token" value="{{ csrf_token }}">` |
 | **状态** | ✅ **已修复** |
 
 ---
@@ -139,10 +163,7 @@
 | 项目 | 内容 |
 |------|------|
 | **文件** | `app.py` |
-| **描述** | 首页和登录路由中过滤密码字段的代码完全重复 |
-| **代码片段（修复前）** | `safe_info = {k: v for k, v in user_info.items() if k != "password"}`（出现两次） |
 | **修复方式** | 提取 `get_safe_user(username)` 函数，统一调用 |
-| **代码片段（修复后）** | `user_info = get_safe_user(username)` |
 | **状态** | ✅ **已修复** |
 
 ---
@@ -152,10 +173,8 @@
 | 项目 | 内容 |
 |------|------|
 | **文件** | `app.py` |
-| **描述** | `login_required` 装饰器中使用硬编码字符串 `"/login"` |
-| **代码片段（修复前）** | `return redirect("/login")` |
+| **代码（修复前）** | `return redirect("/login")` |
 | **修复方式** | 改用 `url_for("login")`，URL 变更时无需修改代码 |
-| **代码片段（修复后）** | `return redirect(url_for("login"))` |
 | **状态** | ✅ **已修复** |
 
 ---
@@ -164,11 +183,9 @@
 
 | 项目 | 内容 |
 |------|------|
+| **OWASP 分类** | A05:2021 – 安全配置错误 |
 | **文件** | `app.py` |
-| **描述** | 没有配置 `SESSION_COOKIE_HTTPONLY` 和 `SESSION_COOKIE_SAMESITE` |
-| **危害** | 缺少 HttpOnly 标记时，XSS 攻击者可窃取 session cookie；缺少 SameSite 时 CSRF 防护不足 |
-| **修复方式** | 添加 Flask session 安全配置 |
-| **代码片段（修复后）** | `app.config["SESSION_COOKIE_HTTPONLY"] = True` / `app.config["SESSION_COOKIE_SAMESITE"] = "Lax"` |
+| **修复方式** | 添加 `SESSION_COOKIE_HTTPONLY`、`SESSION_COOKIE_SAMESITE` 配置 |
 | **状态** | ✅ **已修复** |
 
 ---
@@ -178,10 +195,7 @@
 | 项目 | 内容 |
 |------|------|
 | **文件** | `app.py` |
-| **描述** | 登录成功/失败、登出等关键操作没有任何日志记录 |
-| **危害** | 出现安全问题时无法回溯和溯源 |
 | **修复方式** | 使用 `app.logger` 记录登录成功、失败、登出、注册等关键事件 |
-| **代码片段（修复后）** | `app.logger.info(f"用户 {username} 登录成功")` |
 | **状态** | ✅ **已修复** |
 
 ---
@@ -191,9 +205,7 @@
 | 项目 | 内容 |
 |------|------|
 | **文件** | `app.py` + `templates/error.html` |
-| **描述** | 访问不存在的页面时显示 Flask 默认的错误页面，与项目风格不一致 |
-| **修复方式** | 添加 `@app.errorhandler` 统一处理 404 和 500 错误，渲染自定义模板 |
-| **代码片段（修复后）** | `render_template("error.html", code=404, message="页面不存在")` |
+| **修复方式** | 添加 `@app.errorhandler` 统一处理 404、500 和 429 错误，渲染自定义模板 |
 | **状态** | ✅ **已修复** |
 
 ---
@@ -203,8 +215,7 @@
 | 项目 | 内容 |
 |------|------|
 | **文件** | `app.py` + `templates/register.html` + `base.html` |
-| **描述** | 用户只能通过硬编码添加，不能自行注册 |
-| **修复方式** | 添加 `/register` 路由和注册页面，支持新用户自行注册（含 CSRF 保护、密码长度校验、重复密码校验） |
+| **修复方式** | 添加 `/register` 路由和注册页面 |
 | **状态** | ✅ **已修复** |
 
 ---
@@ -214,48 +225,301 @@
 | 项目 | 内容 |
 |------|------|
 | **文件** | `static/css/style.css` |
-| **描述** | 没有媒体查询，手机浏览器访问时导航栏和卡片不会自适应 |
-| **修复方式** | 添加 `@media (max-width: 600px)` 媒体查询，优化移动端布局 |
+| **修复方式** | 添加 `@media (max-width: 600px)` 媒体查询 |
 | **状态** | ✅ **已修复** |
 
 ---
 
-## 第三部分：最终修复清单
+## 第三部分：安全增强（新增 6 项）
 
-### 安全漏洞修复（7 项）
+### 🔴 [高危] 增强 17：暴力破解防护（登录速率限制 + 账户锁定）
 
-| # | 漏洞 | 涉及文件 | 修复内容 | 状态 |
-|---|------|----------|----------|------|
-| 1 | 密码明文存储 | `app.py` | 改用 `generate_password_hash` 哈希存储 | ✅ |
-| 2 | 密码明文比对 | `app.py` | 改用 `check_password_hash` 哈希比对 | ✅ |
-| 3 | 首页展示密码 | `app.py` + `index.html` | 过滤 `password` 字段，删除模板渲染 | ✅ |
-| 4 | Secret Key 硬编码 | `app.py` | 从 `os.environ.get("SECRET_KEY")` 读取 | ✅ |
-| 5 | 无登录装饰器 | `app.py` | 新增 `@login_required` 装饰器 | ✅ |
-| 6 | Debug 模式开启 | `app.py` | 由 `FLASK_DEBUG` 环境变量控制 | ✅ |
-| 7 | HTML 注释泄露密码 | `login.html` | 删除明文密码注释 | ✅ |
-
-### 架构与代码质量改进（9 项）
-
-| # | 问题 | 涉及文件 | 修复内容 | 状态 |
-|---|------|----------|----------|------|
-| 8 | 违反 PRG 模式 | `app.py` | POST 后改为重定向 | ✅ |
-| 9 | 缺少 CSRF 保护 | `app.py` + `login.html` + `register.html` | 生成并校验 CSRF token | ✅ |
-| 10 | 代码重复 | `app.py` | 提取 `get_safe_user()` 函数 | ✅ |
-| 11 | 硬编码 URL | `app.py` | 改用 `url_for()` | ✅ |
-| 12 | Session 安全配置 | `app.py` | 添加 HttpOnly 和 SameSite 配置 | ✅ |
-| 13 | 缺少日志 | `app.py` | 使用 `app.logger` 记录关键操作 | ✅ |
-| 14 | 缺少错误页面 | `app.py` + `error.html` | 自定义 404/500 页面 | ✅ |
-| 15 | 缺少注册功能 | `app.py` + `register.html` + `base.html` | 新增用户注册 | ✅ |
-| 16 | 缺少响应式设计 | `style.css` | 添加移动端媒体查询 | ✅ |
+| 项目 | 内容 |
+|------|------|
+| **OWASP 分类** | A01:2021 – 访问控制失效 |
+| **文件** | `app.py` |
+| **描述** | 登录接口没有任何速率限制，攻击者可无限次尝试密码 |
+| **攻击复现** | 见 [5.5 暴力破解攻击](#55-暴力破解攻击) |
+| **修复方式** | 1. 使用 `flask-limiter` 限制单 IP 每分钟最多 10 次 POST 请求<br>2. 连续 5 次失败后锁定账户 15 分钟 |
+| **代码** | `@limiter.limit("10 per minute", methods=["POST"])` + `is_account_locked()` |
+| **状态** | ✅ **已修复** |
 
 ---
 
-## 第四部分：改进前后对比
+### 🔴 [高危] 增强 18：Session Fixation 防护
 
-| 维度 | 改进前 | 改进后 |
-|------|--------|--------|
-| **功能** | 登录、登出、展示 | + 用户注册、CSRF 保护 |
-| **安全性** | 明文密码、无 CSRF、secret key 硬编码 | 密码哈希、CSRF token、session 安全配置 |
-| **代码质量** | 重复代码、硬编码路径 | 提取公共函数、使用 `url_for` |
-| **用户体验** | 刷新弹重复提交、无错误页、不支持手机 | PRG 模式、自定义 404/500、响应式设计 |
-| **可维护性** | 无日志 | 登录/注册/登出全流程日志 |
+| 项目 | 内容 |
+|------|------|
+| **OWASP 分类** | A01:2021 – 访问控制失效 |
+| **文件** | `app.py` |
+| **描述** | 登录成功后没有刷新 session，攻击者可诱导用户使用攻击者已知的 session ID |
+| **代码（修复前）** | `session["username"] = username` |
+| **修复方式** | 登录成功时先调用 `session.clear()` 清空旧 session，再设置新值 |
+| **代码（修复后）** | `session.clear()` / `session.permanent = True` / `session["username"] = username` |
+| **状态** | ✅ **已修复** |
+
+---
+
+### 🟡 [中危] 增强 19：Session 超时机制
+
+| 项目 | 内容 |
+|------|------|
+| **OWASP 分类** | A05:2021 – 安全配置错误 |
+| **文件** | `app.py` |
+| **描述** | 用户登录后 session 永不过期，公共电脑上存在风险 |
+| **修复方式** | 设置 `PERMANENT_SESSION_LIFETIME = timedelta(hours=2)`，登录时启用 `session.permanent` |
+| **状态** | ✅ **已修复** |
+
+---
+
+### 🟡 [中危] 增强 20：安全响应头
+
+| 项目 | 内容 |
+|------|------|
+| **OWASP 分类** | A05:2021 – 安全配置错误 |
+| **文件** | `app.py` |
+| **描述** | 所有 HTTP 响应未添加安全头部 |
+| **修复方式** | 使用 `@app.after_request` 统一添加 6 项安全响应头 |
+| **代码** | `X-Content-Type-Options`、`X-Frame-Options`、`CSP`、`Referrer-Policy` 等 |
+| **状态** | ✅ **已修复** |
+
+---
+
+### 🟡 [中危] 增强 21：密码强度策略
+
+| 项目 | 内容 |
+|------|------|
+| **OWASP 分类** | A02:2021 – 密码学失败 |
+| **文件** | `app.py` |
+| **描述** | 注册时只要求密码 ≥ 6 位，复杂度不够 |
+| **代码（修复前）** | `len(password) < 6` |
+| **修复方式** | 要求 ≥ 8 位 + 至少1个大写字母 + 1个小写字母 + 1个数字 + 1个特殊字符 |
+| **代码（修复后）** | `validate_password_strength(password)` 正则校验 |
+| **状态** | ✅ **已修复** |
+
+---
+
+### 🟡 [中危] 增强 22：Secret Key 无安全回退
+
+| 项目 | 内容 |
+|------|------|
+| **OWASP 分类** | A05:2021 – 安全配置错误 |
+| **文件** | `app.py` |
+| **描述** | 环境变量未设置时会回退到弱密钥 `"dev-key-2025"` |
+| **代码（修复前）** | `os.environ.get("SECRET_KEY", "dev-key-2025")` |
+| **修复方式** | 不设默认值，未设置时直接抛出 `RuntimeError` 阻止启动 |
+| **代码（修复后）** | `if not app.secret_key: raise RuntimeError(...)` |
+| **状态** | ✅ **已修复** |
+
+---
+
+## 第四部分：OWASP Top 10 映射
+
+| # | 漏洞/问题 | OWASP 2021 分类 | 风险等级 |
+|---|-----------|-----------------|----------|
+| 1 | 密码明文存储 | A02 – 密码学失败 | 🔴 |
+| 2 | 密码明文比对 | A02 – 密码学失败 | 🔴 |
+| 3 | 首页展示密码 | A04 – 不安全的设计 | 🔴 |
+| 4 | Secret Key 硬编码 | A05 – 安全配置错误 | 🟡 |
+| 5 | 缺少登录装饰器 | A01 – 访问控制失效 | 🟡 |
+| 6 | Debug 模式开启 | A05 – 安全配置错误 | 🟡 |
+| 7 | HTML 注释泄露密码 | A05 – 安全配置错误 | 🟢 |
+| 9 | 缺少 CSRF 保护 | A01 – 访问控制失效 | 🟡 |
+| 12 | Session 未设置安全属性 | A05 – 安全配置错误 | 🟡 |
+| 17 | 暴力破解防护缺失 | A01 – 访问控制失效 | 🔴 |
+| 18 | Session Fixation | A01 – 访问控制失效 | 🔴 |
+| 19 | 无 Session 超时 | A05 – 安全配置错误 | 🟡 |
+| 20 | 缺少安全响应头 | A05 – 安全配置错误 | 🟡 |
+| 21 | 密码强度不足 | A02 – 密码学失败 | 🟡 |
+| 22 | Secret Key 安全回退 | A05 – 安全配置错误 | 🟡 |
+
+---
+
+## 第五部分：攻击复现步骤
+
+### 5.1 密码泄露攻击
+
+**漏洞**：密码明文存储（漏洞 1、2）
+
+```
+攻击步骤：
+1. 攻击者获取 app.py 文件（如 GitHub 仓库公开、服务器被入侵）
+2. 在文件中直接找到 USERS 字典：
+   USERS = {
+       "admin": { "password": "admin123", ... },
+       "alice": { "password": "alice2025", ... },
+   }
+3. 使用 admin / admin123 直接登录系统
+
+修复后：密码存储为哈希值 $pbkdf2-sha256$...，无法逆向还原
+```
+
+### 5.2 敏感信息泄露攻击
+
+**漏洞**：密码在前端页面展示（漏洞 3）
+
+```
+攻击步骤：
+1. 使用 admin / admin123 登录系统
+2. 首页显示用户信息表格，其中包含密码字段
+3. 攻击者从旁路过屏幕即可看到密码 "admin123"
+4. 浏览器保存的 HTML 中也包含密码
+
+修复后：密码字段已被过滤，不再传入模板
+```
+
+### 5.3 Secret Key 泄露攻击
+
+**漏洞**：Secret Key 硬编码（漏洞 4）
+
+```
+攻击步骤：
+1. 攻击者从源码中得到 secret_key = "dev-key-2025"
+2. 使用 flask-unsign 工具伪造 session cookie：
+   $ pip install flask-unsign
+   $ flask-unsign --sign --cookie '{"username":"admin"}' --secret 'dev-key-2025'
+3. 使用伪造的 cookie 直接访问首页，无需密码登录
+
+修复后：密钥从环境变量读取，部署时设置随机值，攻击者无法获得
+```
+
+### 5.4 信息泄露攻击（HTML 注释）
+
+**漏洞**：HTML 注释泄露账号（漏洞 7）
+
+```
+攻击步骤：
+1. 访问 http://目标系统/login
+2. 右键 → 查看网页源代码
+3. 发现第 1 行 HTML 注释：
+   <!-- 调试信息 - 默认管理员账号 用户名: admin 密码: admin123 -->
+4. 使用 admin / admin123 成功登录
+
+修复后：注释内容改为安全提示，不泄露任何密码信息
+```
+
+### 5.5 暴力破解攻击
+
+**漏洞**：缺少暴力破解防护（增强 17）
+
+```
+攻击步骤：
+1. 攻击者编写 Python 爆破脚本：
+   import requests
+   for pwd in ["123456", "admin", "admin123", "password", ...]:
+       r = requests.post("http://目标/login", data={
+           "username": "admin",
+           "password": pwd
+       })
+       if "欢迎" in r.text:
+           print(f"密码已找到: {pwd}")
+           break
+2. 每秒尝试数十次，直到密码被猜中
+
+修复后：单 IP 每分钟仅允许 10 次 POST 请求；同一账户连续
+5 次失败后锁定 15 分钟，爆破不可行
+```
+
+---
+
+## 第六部分：最终修复清单
+
+### 安全漏洞修复（7 项）
+
+| # | 漏洞 | OWASP | 涉及文件 | 状态 |
+|---|------|-------|----------|------|
+| 1 | 密码明文存储 | A02 | `app.py` | ✅ |
+| 2 | 密码明文比对 | A02 | `app.py` | ✅ |
+| 3 | 首页展示密码 | A04 | `app.py` + `index.html` | ✅ |
+| 4 | Secret Key 硬编码 | A05 | `app.py` | ✅ |
+| 5 | 无登录装饰器 | A01 | `app.py` | ✅ |
+| 6 | Debug 模式开启 | A05 | `app.py` | ✅ |
+| 7 | HTML 注释泄露密码 | A05 | `login.html` | ✅ |
+
+### 架构与代码质量改进（9 项）
+
+| # | 问题 | 涉及文件 | 状态 |
+|---|------|----------|------|
+| 8 | 违反 PRG 模式 | `app.py` | ✅ |
+| 9 | 缺少 CSRF 保护 | `app.py` + `login.html` + `register.html` | ✅ |
+| 10 | 代码重复 | `app.py` | ✅ |
+| 11 | 硬编码 URL | `app.py` | ✅ |
+| 12 | Session 安全配置 | `app.py` | ✅ |
+| 13 | 缺少日志 | `app.py` | ✅ |
+| 14 | 缺少错误页面 | `app.py` + `error.html` | ✅ |
+| 15 | 缺少注册功能 | `app.py` + `register.html` + `base.html` | ✅ |
+| 16 | 缺少响应式设计 | `style.css` | ✅ |
+
+### 安全增强新增（6 项）
+
+| # | 增强项 | OWASP | 涉及文件 | 状态 |
+|---|--------|-------|----------|------|
+| 17 | 暴力破解防护 | A01 | `app.py`（flask-limiter + 账户锁定） | ✅ |
+| 18 | Session Fixation 防护 | A01 | `app.py`（session.clear） | ✅ |
+| 19 | Session 超时机制 | A05 | `app.py`（PERMANENT_SESSION_LIFETIME） | ✅ |
+| 20 | 安全响应头 | A05 | `app.py`（after_request） | ✅ |
+| 21 | 密码强度策略 | A02 | `app.py`（正则校验） | ✅ |
+| 22 | Secret Key 无回退 | A05 | `app.py`（启动时报错） | ✅ |
+
+---
+
+## 第七部分：项目工程规范
+
+### 项目结构
+
+```
+flask-user-login/
+├── app.py                  # Flask 主应用
+├── requirements.txt        # Python 依赖清单
+├── .gitignore              # Git 忽略规则
+├── SECURITY_REPORT.md      # 本项目评估与改进报告
+├── README.md               # 项目说明文档（含生产部署指南）
+├── templates/
+│   ├── base.html           # 基础模板
+│   ├── login.html          # 登录页面
+│   ├── register.html       # 注册页面
+│   ├── index.html          # 首页（用户信息展示）
+│   └── error.html          # 404/429/500 错误页面
+└── static/css/
+    └── style.css           # 全局样式
+```
+
+### 安装依赖
+
+```bash
+pip install -r requirements.txt
+```
+
+### 生产部署
+
+```bash
+# 1. 设置安全密钥（必填）
+export SECRET_KEY="your-strong-secret-key-here"
+
+# 2. 关闭 debug 模式
+export FLASK_DEBUG=0
+
+# 3. 安装 gunicorn
+pip install gunicorn
+
+# 4. 启动
+gunicorn -w 4 -b 0.0.0.0:5000 app:app
+
+# 5. 推荐：使用 Nginx 反向代理 + HTTPS
+```
+
+### 安全配置检查清单
+
+- [x] 密码已哈希存储
+- [x] CSRF 防护
+- [x] 登录速率限制
+- [x] 账户锁定机制
+- [x] Session Fixation 防护
+- [x] Session 超时（2 小时）
+- [x] Session HttpOnly + SameSite
+- [x] 安全响应头（CSP、X-Frame-Options 等）
+- [x] 密码强度校验
+- [x] Secret Key 从环境变量读取
+- [x] Debug 模式默认关闭
+- [x] 敏感信息不传入模板
+- [x] 操作日志记录
