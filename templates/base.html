@@ -11,8 +11,8 @@
     <nav class="navbar">
         <div class="navbar-brand">用户管理系统</div>
         <div class="navbar-menu">
-            {% if session.get('username') %}
-                <span class="navbar-welcome">欢迎，{{ session['username'] }}</span>
+            {% if session.get("username") %}
+                <span class="navbar-welcome">欢迎，{{ session["username"] }}</span>
                 <a href="/logout" class="navbar-link">退出</a>
             {% else %}
                 <a href="/login" class="navbar-link">登录</a>
@@ -21,7 +21,7 @@
         </div>
     </nav>
 
-    <!-- 主内容区域 -->
+    <!-- 主内容容器 -->
     <main class="container">
         {% block content %}{% endblock %}
     </main>
