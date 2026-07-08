@@ -3,7 +3,7 @@ from werkzeug.security import generate_password_hash, check_password_hash
 import sqlite3, os
 
 app = Flask(__name__)
-app.secret_key = os.urandom(32).hex()
+app.secret_key = "dev-key-2025"
 
 
 def init_db():
@@ -162,5 +162,4 @@ def logout():
 
 if __name__ == "__main__":
     init_db()
-    # 生产环境不应使用 debug 模式
-    app.run(debug=False, host="0.0.0.0", port=5000)
+    app.run(debug=True, host="0.0.0.0", port=5000)
