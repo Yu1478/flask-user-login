@@ -288,3 +288,57 @@ a {
 .no-result {
     margin-top: 16px;
 }
+
+/* 上传头像 */
+.upload-card {
+    max-width: 500px;
+    margin: 0 auto;
+}
+
+.upload-form {
+    margin-top: 8px;
+}
+
+.file-input {
+    padding: 8px 10px;
+    background-color: #fafafa;
+}
+
+.upload-result {
+    margin-top: 24px;
+    padding-top: 20px;
+    border-top: 1px solid #eee;
+    text-align: center;
+}
+
+.preview-box {
+    margin: 16px auto;
+    max-width: 200px;
+    border: 2px dashed #d0d5dd;
+    border-radius: 8px;
+    padding: 8px;
+    background-color: #fafafa;
+}
+
+.preview-img {
+    width: 100%;
+    height: auto;
+    border-radius: 4px;
+    display: block;
+}
+
+.file-link-text {
+    font-size: 13px;
+    color: #666;
+    margin-top: 8px;
+    word-break: break-all;
+}
+
+.file-link {
+    color: #667eea;
+    text-decoration: underline;
+}
+
+.file-link:hover {
+    color: #5a6fd6;
+}

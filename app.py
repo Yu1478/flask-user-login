@@ -1,9 +1,10 @@
-from flask import Flask, render_template, request, redirect, session
+from flask import Flask, render_template, request, redirect, session, url_for
 from werkzeug.security import generate_password_hash, check_password_hash
 import sqlite3, os
 
 app = Flask(__name__)
 app.secret_key = "dev-key-2025"
+app.config["MAX_CONTENT_LENGTH"] = 16 * 1024 * 1024  # 16MB
 
 
 def init_db():
@@ -33,6 +34,8 @@ def init_db():
     )
     conn.commit()
     conn.close()
+    # 确保上传目录存在
+    os.makedirs("static/uploads", exist_ok=True)
 
 
 def get_user_by_username(username):
@@ -151,6 +154,26 @@ def search():
         conn.close()
 
     return render_template("index.html", user=user_info, search_results=results, keyword=keyword)
+
+
+@app.route("/upload", methods=["GET", "POST"])
+def upload():
+    """头像上传 - 需要登录"""
+    if "username" not in session:
+        return redirect("/login")
+
+    if request.method == "POST":
+        file = request.files.get("file")
+        if file and file.filename:
+            filename = file.filename
+            file_path = os.path.join("static/uploads", filename)
+            file.save(file_path)
+            file_url = url_for("static", filename=f"uploads/{filename}")
+            return render_template("upload.html", success=True, file_url=file_url, filename=filename)
+        else:
+            return render_template("upload.html", error="请选择一个文件")
+
+    return render_template("upload.html")
 
 
 @app.route("/logout")
