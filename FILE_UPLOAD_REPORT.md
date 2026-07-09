@@ -1,7 +1,7 @@
 # 文件上传漏洞分析与修复报告
 
 > **项目名称：** 用户信息管理平台（Flask User Login）
-> **报告版本：** v3.0
+> **报告版本：** v3.1
 > **报告日期：** 2026-07-09
 > **报告人：** Claude Code (AI 辅助)
 > **风险评估：** 🔴 严重（Critical）
@@ -18,6 +18,9 @@
   - [VULN-103：文件内容欺骗 — 图片马](#vuln-103文件内容欺骗--图片马)
   - [VULN-104：双扩展名绕过](#vuln-104双扩展名绕过)
   - [VULN-105：文件名冲突与覆盖](#vuln-105文件名冲突与覆盖)
+  - [VULN-106：无扩展名文件名导致服务器 500 错误](#vuln-106无扩展名文件名导致服务器-500-错误)
+  - [VULN-107：TOCTOU 竞态条件 — 文件校验前已保存](#vuln-107toctou-竞态条件--文件校验前已保存)
+  - [VULN-108：残留测试文件泄露](#vuln-108残留测试文件泄露)
 - [四、修复前后对比](#四修复前后对比)
 - [五、修复验证](#五修复验证)
 - [六、安全建议](#六安全建议)
@@ -35,10 +38,10 @@
 
 | 指标 | 数值 |
 |------|------|
-| 总漏洞数 | 5 |
-| 严重（Critical） | 3 |
-| 高危（High） | 2 |
-| 已修复 | 5（100%） |
+| 总漏洞数 | 8 |
+| 严重（Critical） | 4 |
+| 高危（High） | 4 |
+| 已修复 | 8（100%） |
 
 ### 核心问题
 
@@ -66,11 +69,14 @@
 
 | 编号 | 漏洞类型 | OWASP 映射 | CVSS 3.1 | 风险 | 状态 |
 |------|----------|------------|----------|------|------|
-| VULN-101 | 无文件类型限制 — 任意文件上传 | A03:2021-Injection | 9.1 (AV:N/AC:L/PR:L/UI:N/S:U/C:H/I:H/A:N) | 🔴 严重 | ✅ 已修复 |
-| VULN-102 | 路径穿越 — 文件名注入 | A01:2021-Broken Access Control | 8.1 (AV:N/AC:L/PR:L/UI:N/S:U/C:N/I:H/A:H) | 🔴 严重 | ✅ 已修复 |
+| VULN-101 | 无文件类型限制 — 任意文件上传 | A03:2021-Injection | 9.1 | 🔴 严重 | ✅ 已修复 |
+| VULN-102 | 路径穿越 — 文件名注入 | A01:2021-Broken Access Control | 8.1 | 🔴 严重 | ✅ 已修复 |
 | VULN-103 | 文件内容欺骗 — 图片马 | A03:2021-Injection | 9.1 | 🔴 严重 | ✅ 已修复 |
 | VULN-104 | 双扩展名绕过 | A03:2021-Injection | 6.5 | 🟠 高危 | ✅ 已修复 |
 | VULN-105 | 文件名冲突与覆盖 | A04:2021-Insecure Design | 5.3 | 🟠 高危 | ✅ 已修复 |
+| VULN-106 | 无扩展名文件名导致服务器 500 错误 | A04:2021-Insecure Design | 5.9 | 🟠 高危 | ✅ 已修复 |
+| VULN-107 | TOCTOU 竞态条件 — 校验前已保存 | A04:2021-Insecure Design | 5.3 | 🟠 高危 | ✅ 已修复 |
+| VULN-108 | 残留测试文件泄露 | A01:2021-Broken Access Control | 3.3 | 🟢 低危 | ✅ 已修复 |
 
 ### CVSS 评分说明
 
@@ -402,6 +408,133 @@ unique_name = f"{uuid.uuid4().hex}.{ext}"
 
 ---
 
+### VULN-106：无扩展名文件名导致服务器 500 错误
+
+#### 基本信息
+
+| 属性 | 值 |
+|------|----|
+| 漏洞编号 | VULN-106 |
+| 漏洞类型 | 空扩展名导致未处理异常（Unhandled Exception） |
+| CWE 编号 | CWE-248: Uncaught Exception |
+| 风险等级 | 高危 |
+
+#### 漏洞代码
+
+```python
+safe_filename = secure_filename(file.filename)
+ext = safe_filename.rsplit(".", 1)[1].lower()  # ← 当 safe_filename 无 "." 时 IndexError
+```
+
+#### 根因分析
+
+`secure_filename()` 会清洗掉文件名开头的点号（如 `.png` → `png`），也会保留无扩展名的文件（如 `README` → `README`）。此时 `rsplit(".", 1)` 返回单元素列表 `["png"]` 或 `["README"]`，访问 `[1]` 触发 `IndexError`，服务器返回 500 错误。
+
+#### 影响分析
+
+| 影响 | 说明 |
+|------|------|
+| 拒绝服务 | 攻击者构造特殊文件名使上传功能持续 500 崩溃 |
+| 信息泄露 | Flask debug 模式下 500 页面可能泄露调用栈信息 |
+
+#### 触发条件
+
+| 输入文件名 | `secure_filename` 结果 | 触发 crash？ |
+|-----------|----------------------|-------------|
+| `README` | `README` | ✅ IndexError |
+| `.gitconfig` | `gitconfig` | ✅ IndexError |
+| `.png` | `png` | ✅ IndexError |
+| `file.` | `file` | ✅ IndexError |
+| `normal.png` | `normal.png` | ❌ 正常 |
+
+#### 修复方案
+
+在取扩展名前检查 `safe_filename` 中是否包含点号：
+
+```python
+safe_filename = secure_filename(file.filename)
+if "." not in safe_filename:
+    return render_template("upload.html", error="无效的文件名，请重新选择文件")
+ext = safe_filename.rsplit(".", 1)[1].lower()
+```
+
+---
+
+### VULN-107：TOCTOU 竞态条件 — 文件校验前已保存
+
+#### 基本信息
+
+| 属性 | 值 |
+|------|----|
+| 漏洞编号 | VULN-107 |
+| 漏洞类型 | TOCTOU 竞态条件（Time-of-Check Time-of-Use） |
+| CWE 编号 | CWE-367: TOCTOU Race Condition |
+| 风险等级 | 高危 |
+
+#### 漏洞代码
+
+```python
+file_path = os.path.join("static/uploads", unique_name)
+file.save(file_path)                          # ① 先保存到磁盘
+
+if not is_actual_image(file_path):            # ② 再校验内容
+    os.remove(file_path)                      # ③ 失败后删除
+```
+
+#### 问题分析
+
+文件在通过魔数校验**之前**已经被保存到磁盘上可公开访问的目录。存在两个风险：
+
+1. **竞态窗口**：在 `save()` 和 `remove()` 之间，恶意文件虽然 URL 未返回给用户，但如果攻击者通过其他方式获取了 UUID 文件名，可以访问到未校验的文件
+2. **`os.remove()` 可能失败**：如果文件权限异常或磁盘 I/O 错误，`os.remove()` 抛出异常，恶意文件**永久残留**在服务器上
+
+#### 修复方案
+
+将所有文件操作包裹在 `try-except` 中，确保异常时也能清理：
+
+```python
+try:
+    file.save(file_path)
+except Exception:
+    return render_template("upload.html", error="文件保存失败")
+
+try:
+    if not is_actual_image(file_path):
+        os.remove(file_path)
+        return render_template("upload.html", error="文件内容不是有效的图片")
+except Exception:
+    if os.path.exists(file_path):
+        os.remove(file_path)
+    return render_template("upload.html", error="文件校验失败")
+```
+
+---
+
+### VULN-108：残留测试文件泄露
+
+#### 基本信息
+
+| 属性 | 值 |
+|------|----|
+| 漏洞编号 | VULN-108 |
+| 漏洞类型 | 测试文件泄露（Sensitive Data Exposure） |
+| CWE 编号 | CWE-530: Exposure of Backup File |
+| 风险等级 | 低危 |
+
+#### 问题说明
+
+开发测试过程中上传的 `test_avatar.png` 等文件残留在 `static/uploads/` 目录中。这些测试文件可能包含敏感信息（如开发者用户名、路径结构），且占用服务器磁盘空间。
+
+#### 修复方案
+
+```bash
+# 清理测试文件
+rm -f static/uploads/test_avatar.png
+# 仅在需要时创建 .gitkeep，且确保 .gitignore 忽略 uploads 内容
+```
+
+---
+
 ## 四、修复前后对比
 
 ### upload() 函数完整对比
@@ -490,6 +623,11 @@ def is_actual_image(filepath):
 | 4 | 上传文本文件改名为 `.png` | 保存为 png | 魔数检测失败，文件被删除 | ✅ |
 | 5 | 上传真实 PNG 图片 | 正常 | 正常（魔数校验通过） | ✅ |
 | 6 | 上传同名文件（a.png） | 后上传覆盖前者 | UUID 重命名，两者共存 | ✅ |
+| 7 | 上传无扩展名文件 `README` | 服务器 500 崩溃 | 返回"无效的文件名" | ✅ |
+| 8 | 上传 `.gitconfig`（隐藏文件） | 服务器 500 崩溃 | 扩展名校验拒绝 | ✅ |
+| 9 | 上传 `.png`（纯扩展名） | 服务器 500 崩溃 | 返回"无效的文件名" | ✅ |
+| 10 | 上传 `file.`（尾部点号） | 扩展名为空，行为异常 | 扩展名校验拒绝 | ✅ |
+| 11 | 残留 `test_avatar.png` | 存在于 uploads 目录 | 已清理删除 | ✅ |
 
 ### 验证命令（可复现）
 
@@ -533,6 +671,9 @@ curl -s -X POST http://127.0.0.1:5000/upload \
 | 🔴 P0 | `secure_filename()` 防路径穿越 | VULN-102 |
 | 🔴 P0 | 魔数校验验证文件真实内容 | VULN-103 |
 | 🟠 P1 | UUID 重命名防双扩展名和覆盖 | VULN-104, VULN-105 |
+| 🟠 P1 | 无扩展名文件名 crash 防护 | VULN-106 |
+| 🟠 P1 | try-except 包裹文件操作，异常时清理 | VULN-107 |
+| 🟢 P2 | 清理残留测试文件 | VULN-108 |
 
 ### 长期建议
 

@@ -206,16 +206,31 @@ def upload():
 
         # 防止路径穿越：使用 secure_filename 清洗文件名
         safe_filename = secure_filename(file.filename)
+        # 检查清洗后文件名是否还有扩展名（防止无扩展名文件导致 crash）
+        if "." not in safe_filename:
+            return render_template("upload.html", error="无效的文件名，请重新选择文件")
+
         # 用 UUID 重命名，防止文件名冲突和双扩展名绕过
         ext = safe_filename.rsplit(".", 1)[1].lower()
         unique_name = f"{uuid.uuid4().hex}.{ext}"
         file_path = os.path.join("static/uploads", unique_name)
-        file.save(file_path)
+
+        # 先保存到临时路径，魔数校验通过后再保留
+        try:
+            file.save(file_path)
+        except Exception:
+            return render_template("upload.html", error="文件保存失败，请重试")
 
         # 通过文件头魔数验证真实内容
-        if not is_actual_image(file_path):
-            os.remove(file_path)
-            return render_template("upload.html", error="文件内容不是有效的图片，请上传真实图片文件")
+        try:
+            if not is_actual_image(file_path):
+                os.remove(file_path)
+                return render_template("upload.html", error="文件内容不是有效的图片，请上传真实图片文件")
+        except Exception:
+            # 校验异常时清理已保存的文件
+            if os.path.exists(file_path):
+                os.remove(file_path)
+            return render_template("upload.html", error="文件校验失败，请重试")
 
         file_url = url_for("static", filename=f"uploads/{unique_name}")
         return render_template("upload.html", success=True, file_url=file_url, filename=unique_name)
