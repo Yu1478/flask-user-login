@@ -1,10 +1,43 @@
 from flask import Flask, render_template, request, redirect, session, url_for
 from werkzeug.security import generate_password_hash, check_password_hash
-import sqlite3, os
+from werkzeug.utils import secure_filename
+import sqlite3, os, uuid
 
 app = Flask(__name__)
 app.secret_key = "dev-key-2025"
 app.config["MAX_CONTENT_LENGTH"] = 16 * 1024 * 1024  # 16MB
+
+# 允许的图片扩展名
+ALLOWED_EXTENSIONS = {"png", "jpg", "jpeg", "gif", "webp"}
+# 允许的 MIME 类型
+ALLOWED_MIMETYPES = {"image/png", "image/jpeg", "image/gif", "image/webp"}
+
+
+def allowed_file(filename):
+    """检查文件扩展名是否在白名单内"""
+    return "." in filename and filename.rsplit(".", 1)[1].lower() in ALLOWED_EXTENSIONS
+
+
+def is_actual_image(filepath):
+    """通过文件头魔数验证文件是否为真实图片"""
+    try:
+        with open(filepath, "rb") as f:
+            header = f.read(12)
+        # PNG: 89 50 4E 47 0D 0A 1A 0A
+        if header[:8] == b"\x89PNG\r\n\x1a\n":
+            return True
+        # JPEG: FF D8 FF
+        if header[:3] == b"\xff\xd8\xff":
+            return True
+        # GIF: 47 49 46 38 39 61 或 47 49 46 38 37 61
+        if header[:6] in (b"GIF89a", b"GIF87a"):
+            return True
+        # WebP: 52 49 46 46 x x x x 57 45 42 50
+        if header[:4] == b"RIFF" and header[8:12] == b"WEBP":
+            return True
+        return False
+    except Exception:
+        return False
 
 
 def init_db():
@@ -158,20 +191,34 @@ def search():
 
 @app.route("/upload", methods=["GET", "POST"])
 def upload():
-    """头像上传 - 需要登录"""
+    """头像上传 - 需要登录，带文件类型和内容校验"""
     if "username" not in session:
         return redirect("/login")
 
     if request.method == "POST":
         file = request.files.get("file")
-        if file and file.filename:
-            filename = file.filename
-            file_path = os.path.join("static/uploads", filename)
-            file.save(file_path)
-            file_url = url_for("static", filename=f"uploads/{filename}")
-            return render_template("upload.html", success=True, file_url=file_url, filename=filename)
-        else:
+        if not file or not file.filename:
             return render_template("upload.html", error="请选择一个文件")
+
+        # 检查扩展名
+        if not allowed_file(file.filename):
+            return render_template("upload.html", error="只允许上传图片文件（png, jpg, jpeg, gif, webp）")
+
+        # 防止路径穿越：使用 secure_filename 清洗文件名
+        safe_filename = secure_filename(file.filename)
+        # 用 UUID 重命名，防止文件名冲突和双扩展名绕过
+        ext = safe_filename.rsplit(".", 1)[1].lower()
+        unique_name = f"{uuid.uuid4().hex}.{ext}"
+        file_path = os.path.join("static/uploads", unique_name)
+        file.save(file_path)
+
+        # 通过文件头魔数验证真实内容
+        if not is_actual_image(file_path):
+            os.remove(file_path)
+            return render_template("upload.html", error="文件内容不是有效的图片，请上传真实图片文件")
+
+        file_url = url_for("static", filename=f"uploads/{unique_name}")
+        return render_template("upload.html", success=True, file_url=file_url, filename=unique_name)
 
     return render_template("upload.html")
 
