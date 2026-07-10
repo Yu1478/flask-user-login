@@ -255,39 +255,49 @@ def upload():
 
 @app.route("/profile")
 def profile():
-    """个人中心 - 通过 URL 参数 user_id 查询任意用户"""
-    user_id = request.args.get("user_id")
-    if not user_id:
-        return render_template("profile.html", error="请提供用户 ID")
+    """个人中心 - 只能查看自己的资料"""
+    if "username" not in session:
+        return redirect("/login")
 
-    user_info = get_user_by_id(user_id)
+    username = session["username"]
+    user_info = get_user_by_username(username)
     if not user_info:
-        return render_template("profile.html", error="用户不存在")
+        session.pop("username", None)
+        return redirect("/login")
 
     return render_template("profile.html", user=user_info)
 
 
 @app.route("/recharge", methods=["POST"])
 def recharge():
-    """充值 - 接收 user_id 和 amount，直接修改余额"""
-    user_id = request.form.get("user_id")
-    amount = request.form.get("amount")
+    """充值 - 只能给当前登录用户充值，金额必须大于 0"""
+    if "username" not in session:
+        return redirect("/login")
 
-    if not user_id or not amount:
+    amount = request.form.get("amount")
+    if not amount:
         return redirect("/")
 
     try:
         amount = float(amount)
     except ValueError:
-        return redirect(f"/profile?user_id={user_id}")
+        return redirect("/profile")
+
+    if amount <= 0:
+        return redirect("/profile?error=充值金额必须大于0")
+
+    username = session["username"]
+    user_info = get_user_by_username(username)
+    if not user_info:
+        return redirect("/login")
 
     conn = sqlite3.connect("data/users.db")
     c = conn.cursor()
-    c.execute("UPDATE users SET balance = balance + ? WHERE id = ?", (amount, user_id))
+    c.execute("UPDATE users SET balance = balance + ? WHERE id = ?", (amount, user_info["id"]))
     conn.commit()
     conn.close()
 
-    return redirect(f"/profile?user_id={user_id}")
+    return redirect("/profile")
 
 
 @app.route("/logout")

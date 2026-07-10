@@ -4,10 +4,13 @@
 <div class="card">
     {% if error %}
         <div class="alert alert-error">{{ error }}</div>
-        <div class="action-bar">
-            <a href="/" class="btn btn-primary">返回首页</a>
-        </div>
-    {% elif user %}
+    {% endif %}
+
+    {% if request.args.get("error") %}
+        <div class="alert alert-error">{{ request.args.get("error") }}</div>
+    {% endif %}
+
+    {% if user %}
         <h2 class="card-title">个人中心</h2>
         <div class="user-info">
             <table class="info-table">
@@ -38,8 +41,7 @@
         <div class="search-section">
             <h3 class="section-title">充值</h3>
             <form method="POST" action="/recharge" class="search-form">
-                <input type="hidden" name="user_id" value="{{ user.id }}">
-                <input type="number" name="amount" class="form-input search-input" placeholder="输入充值金额" step="0.01" required>
+                <input type="number" name="amount" class="form-input search-input" placeholder="输入充值金额（必须大于 0）" step="0.01" min="0.01" required>
                 <button type="submit" class="btn btn-primary">充值</button>
             </form>
         </div>
