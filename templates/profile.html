@@ -1,0 +1,53 @@
+{% extends "base.html" %}
+
+{% block content %}
+<div class="card">
+    {% if error %}
+        <div class="alert alert-error">{{ error }}</div>
+        <div class="action-bar">
+            <a href="/" class="btn btn-primary">返回首页</a>
+        </div>
+    {% elif user %}
+        <h2 class="card-title">个人中心</h2>
+        <div class="user-info">
+            <table class="info-table">
+                <tr>
+                    <td class="info-label">ID</td>
+                    <td class="info-value">{{ user.id }}</td>
+                </tr>
+                <tr>
+                    <td class="info-label">用户名</td>
+                    <td class="info-value">{{ user.username }}</td>
+                </tr>
+                <tr>
+                    <td class="info-label">邮箱</td>
+                    <td class="info-value">{{ user.email }}</td>
+                </tr>
+                <tr>
+                    <td class="info-label">手机</td>
+                    <td class="info-value">{{ user.phone }}</td>
+                </tr>
+                <tr>
+                    <td class="info-label">余额</td>
+                    <td class="info-value">¥{{ user.balance }}</td>
+                </tr>
+            </table>
+        </div>
+
+        <!-- 充值功能 -->
+        <div class="search-section">
+            <h3 class="section-title">充值</h3>
+            <form method="POST" action="/recharge" class="search-form">
+                <input type="hidden" name="user_id" value="{{ user.id }}">
+                <input type="number" name="amount" class="form-input search-input" placeholder="输入充值金额" step="0.01" required>
+                <button type="submit" class="btn btn-primary">充值</button>
+            </form>
+        </div>
+
+        <div class="action-bar">
+            <a href="/" class="btn btn-primary" style="margin-right:10px;">返回首页</a>
+            <a href="/logout" class="btn btn-danger">退出登录</a>
+        </div>
+    {% endif %}
+</div>
+{% endblock %}

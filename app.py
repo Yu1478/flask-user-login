@@ -99,6 +99,21 @@ def get_user_full(username):
     return None
 
 
+def get_user_by_id(user_id):
+    """根据用户 ID 查询用户信息（不含 password 字段）"""
+    conn = sqlite3.connect("data/users.db")
+    conn.row_factory = sqlite3.Row
+    c = conn.cursor()
+    c.execute("SELECT * FROM users WHERE id = ?", (user_id,))
+    row = c.fetchone()
+    conn.close()
+    if row:
+        user = dict(row)
+        user.pop("password", None)
+        return user
+    return None
+
+
 @app.route("/")
 def index():
     """首页 - 展示当前登录用户信息或提示登录"""
@@ -236,6 +251,43 @@ def upload():
         return render_template("upload.html", success=True, file_url=file_url, filename=unique_name)
 
     return render_template("upload.html")
+
+
+@app.route("/profile")
+def profile():
+    """个人中心 - 通过 URL 参数 user_id 查询任意用户"""
+    user_id = request.args.get("user_id")
+    if not user_id:
+        return render_template("profile.html", error="请提供用户 ID")
+
+    user_info = get_user_by_id(user_id)
+    if not user_info:
+        return render_template("profile.html", error="用户不存在")
+
+    return render_template("profile.html", user=user_info)
+
+
+@app.route("/recharge", methods=["POST"])
+def recharge():
+    """充值 - 接收 user_id 和 amount，直接修改余额"""
+    user_id = request.form.get("user_id")
+    amount = request.form.get("amount")
+
+    if not user_id or not amount:
+        return redirect("/")
+
+    try:
+        amount = float(amount)
+    except ValueError:
+        return redirect(f"/profile?user_id={user_id}")
+
+    conn = sqlite3.connect("data/users.db")
+    c = conn.cursor()
+    c.execute("UPDATE users SET balance = balance + ? WHERE id = ?", (amount, user_id))
+    conn.commit()
+    conn.close()
+
+    return redirect(f"/profile?user_id={user_id}")
 
 
 @app.route("/logout")
