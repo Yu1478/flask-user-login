@@ -1,7 +1,7 @@
 from flask import Flask, render_template, request, redirect, session, url_for
 from werkzeug.security import generate_password_hash, check_password_hash
 from werkzeug.utils import secure_filename
-import sqlite3, os, uuid
+import sqlite3, os, uuid, time
 
 app = Flask(__name__)
 app.secret_key = "dev-key-2025"
@@ -11,6 +11,11 @@ app.config["MAX_CONTENT_LENGTH"] = 16 * 1024 * 1024  # 16MB
 ALLOWED_EXTENSIONS = {"png", "jpg", "jpeg", "gif", "webp"}
 # 允许的 MIME 类型
 ALLOWED_MIMETYPES = {"image/png", "image/jpeg", "image/gif", "image/webp"}
+
+# 登录失败锁定
+LOGIN_FAILURES = {}
+MAX_ATTEMPTS = 5
+LOCKOUT_MINUTES = 15
 
 
 def allowed_file(filename):
@@ -126,18 +131,36 @@ def index():
 
 @app.route("/login", methods=["GET", "POST"])
 def login():
-    """登录页面"""
+    """登录页面 - 含暴力破解防护"""
     if request.method == "POST":
         username = request.form.get("username", "")
         password = request.form.get("password", "")
 
+        # 检查是否锁定
+        if username in LOGIN_FAILURES:
+            attempts, lock_time = LOGIN_FAILURES[username]
+            if attempts >= MAX_ATTEMPTS:
+                elapsed = (time.time() - lock_time) / 60
+                if elapsed < LOCKOUT_MINUTES:
+                    remaining = int(LOCKOUT_MINUTES - elapsed)
+                    return render_template("login.html", error=f"账户已临时锁定，请 {remaining} 分钟后再试")
+                else:
+                    del LOGIN_FAILURES[username]
+
         user_full = get_user_full(username)
         if user_full and check_password_hash(user_full["password"], password):
             session["username"] = username
-            # 传递不含密码的用户信息
+            LOGIN_FAILURES.pop(username, None)
             user_info = {k: v for k, v in user_full.items() if k != "password"}
             return render_template("index.html", user=user_info)
         else:
+            # 记录失败
+            now = time.time()
+            if username in LOGIN_FAILURES:
+                cnt, _ = LOGIN_FAILURES[username]
+                LOGIN_FAILURES[username] = (cnt + 1, now)
+            else:
+                LOGIN_FAILURES[username] = (1, now)
             return render_template("login.html", error="用户名或密码错误，请重试")
 
     return render_template("login.html")
@@ -145,12 +168,16 @@ def login():
 
 @app.route("/register", methods=["GET", "POST"])
 def register():
-    """注册页面 - 使用参数化查询修复 SQL 注入"""
+    """注册页面 - 含密码强度校验"""
     if request.method == "POST":
         username = request.form.get("username", "")
         password = request.form.get("password", "")
         email = request.form.get("email", "")
         phone = request.form.get("phone", "")
+
+        # 密码强度校验
+        if len(password) < 6:
+            return render_template("register.html", error="密码长度不能少于 6 位")
 
         # 密码哈希后再存入数据库
         hashed_pw = generate_password_hash(password)
@@ -166,10 +193,10 @@ def register():
             conn.commit()
             conn.close()
             return render_template("login.html", success="注册成功，请登录")
-        except Exception as e:
+        except Exception:
             conn.close()
-            # 不暴露原始数据库错误给用户
-            return render_template("register.html", error="注册失败，该用户名可能已存在")
+            # 统一错误信息，不区分"用户名已存在"还是其他错误
+            return render_template("register.html", error="注册失败，请检查信息后重试")
 
     return render_template("register.html")
 
@@ -191,7 +218,7 @@ def search():
         c = conn.cursor()
         try:
             c.execute(
-                "SELECT id, username, email, phone FROM users WHERE username LIKE ? OR email LIKE ?",
+                "SELECT id, username, email FROM users WHERE username LIKE ? OR email LIKE ?",
                 (f"%{keyword}%", f"%{keyword}%")
             )
             rows = c.fetchall()
