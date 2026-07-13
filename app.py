@@ -323,6 +323,7 @@ def recharge():
     c.execute("UPDATE users SET balance = balance + ? WHERE id = ?", (amount, user_info["id"]))
     conn.commit()
     conn.close()
+    return redirect("/profile")
 
 @app.route("/page")
 def dynamic_page():
