@@ -326,7 +326,7 @@ def recharge():
 
 @app.route("/page")
 def dynamic_page():
-    """动态页面加载 - 修复路径遍历漏洞"""
+    """动态页面加载 - 修复文件包含漏洞"""
     name = request.args.get("name", "")
     if not name:
         return render_template("index.html", page_error="请提供页面名称")
