@@ -326,23 +326,29 @@ def recharge():
 
 @app.route("/page")
 def dynamic_page():
-    """动态页面加载 - 通过 URL 参数 name 读取 pages/ 下的文件"""
+    """动态页面加载 - 修复路径遍历漏洞"""
     name = request.args.get("name", "")
     if not name:
         return render_template("index.html", page_error="请提供页面名称")
 
-    # 直接拼接用户输入到路径（故意不校验 ../）
-    page_path = os.path.join("pages", name)
+    # 防止路径遍历：规范化路径并检查是否在 pages/ 范围内
+    requested_path = os.path.join("pages", name)
+    real_path = os.path.realpath(requested_path)
+    pages_dir = os.path.realpath("pages")
+
+    if not real_path.startswith(pages_dir):
+        return render_template("index.html", page_error="页面不存在")
+
     page_content = None
 
     # 先尝试直接读
-    if os.path.exists(page_path):
-        with open(page_path, "r", encoding="utf-8") as f:
+    if os.path.exists(real_path) and os.path.isfile(real_path):
+        with open(real_path, "r", encoding="utf-8") as f:
             page_content = f.read()
     else:
         # 尝试加 .html 后缀
-        html_path = page_path + ".html"
-        if os.path.exists(html_path):
+        html_path = real_path + ".html"
+        if os.path.exists(html_path) and os.path.isfile(html_path):
             with open(html_path, "r", encoding="utf-8") as f:
                 page_content = f.read()
         else:
