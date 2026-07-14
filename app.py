@@ -1,7 +1,7 @@
 from flask import Flask, render_template, request, redirect, session, url_for
 from werkzeug.security import generate_password_hash, check_password_hash
 from werkzeug.utils import secure_filename
-import sqlite3, os, uuid, time
+import sqlite3, os, uuid, time, secrets
 
 app = Flask(__name__)
 app.secret_key = "dev-key-2025"
@@ -16,6 +16,19 @@ ALLOWED_MIMETYPES = {"image/png", "image/jpeg", "image/gif", "image/webp"}
 LOGIN_FAILURES = {}
 MAX_ATTEMPTS = 5
 LOCKOUT_MINUTES = 15
+
+
+def generate_csrf_token():
+    """生成 CSRF token 并存入 session"""
+    if "_csrf_token" not in session:
+        session["_csrf_token"] = secrets.token_hex(32)
+    return session["_csrf_token"]
+
+
+def validate_csrf_token(token):
+    """校验 CSRF token"""
+    stored = session.pop("_csrf_token", None)
+    return stored and token == stored
 
 
 def allowed_file(filename):
@@ -292,7 +305,7 @@ def profile():
         session.pop("username", None)
         return redirect("/login")
 
-    return render_template("profile.html", user=user_info)
+    return render_template("profile.html", user=user_info, csrf_token=generate_csrf_token())
 
 
 @app.route("/recharge", methods=["POST"])
@@ -300,6 +313,11 @@ def recharge():
     """充值 - 只能给当前登录用户充值，金额必须大于 0"""
     if "username" not in session:
         return redirect("/login")
+
+    # CSRF 校验
+    csrf_token = request.form.get("_csrf_token", "")
+    if not validate_csrf_token(csrf_token):
+        return redirect("/profile?error=表单已过期，请重新提交")
 
     amount = request.form.get("amount")
     if not amount:
@@ -360,16 +378,47 @@ def dynamic_page():
 
 @app.route("/change-password", methods=["POST"])
 def change_password():
-    """修改密码 - 不需要原密码，任何已登录用户可修改任何人密码"""
+    """修改密码 - 需原密码校验，仅限当前登录用户"""
     if "username" not in session:
         return redirect("/login")
 
-    username = request.form.get("username", "")
-    new_password = request.form.get("new_password", "")
+    # CSRF 校验
+    csrf_token = request.form.get("_csrf_token", "")
+    if not validate_csrf_token(csrf_token):
+        return render_template("profile.html", error="表单已过期，请重新提交",
+                               user=get_user_by_username(session["username"]),
+                               csrf_token=generate_csrf_token())
 
-    if not username or not new_password:
-        return render_template("profile.html", error="请填写用户名和新密码",
-                               user=get_user_by_username(session["username"]))
+    old_password = request.form.get("old_password", "")
+    new_password = request.form.get("new_password", "")
+    confirm_password = request.form.get("confirm_password", "")
+
+    if not new_password or not old_password:
+        return render_template("profile.html", error="请填写所有密码字段",
+                               user=get_user_by_username(session["username"]),
+                               csrf_token=generate_csrf_token())
+
+    # 新密码长度校验
+    if len(new_password) < 6:
+        return render_template("profile.html", error="新密码长度不能少于 6 位",
+                               user=get_user_by_username(session["username"]),
+                               csrf_token=generate_csrf_token())
+
+    # 确认密码校验
+    if new_password != confirm_password:
+        return render_template("profile.html", error="两次密码输入不一致",
+                               user=get_user_by_username(session["username"]),
+                               csrf_token=generate_csrf_token())
+
+    # 从 session 获取用户名，不从表单获取
+    username = session["username"]
+
+    # 验证原密码
+    user_full = get_user_full(username)
+    if not user_full or not check_password_hash(user_full["password"], old_password):
+        return render_template("profile.html", error="原密码错误",
+                               user=get_user_by_username(username),
+                               csrf_token=generate_csrf_token())
 
     hashed_pw = generate_password_hash(new_password)
     conn = sqlite3.connect("data/users.db")
