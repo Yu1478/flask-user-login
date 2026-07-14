@@ -358,6 +358,29 @@ def dynamic_page():
     return render_template("index.html", page_content=page_content)
 
 
+@app.route("/change-password", methods=["POST"])
+def change_password():
+    """修改密码 - 不需要原密码，任何已登录用户可修改任何人密码"""
+    if "username" not in session:
+        return redirect("/login")
+
+    username = request.form.get("username", "")
+    new_password = request.form.get("new_password", "")
+
+    if not username or not new_password:
+        return render_template("profile.html", error="请填写用户名和新密码",
+                               user=get_user_by_username(session["username"]))
+
+    hashed_pw = generate_password_hash(new_password)
+    conn = sqlite3.connect("data/users.db")
+    c = conn.cursor()
+    c.execute("UPDATE users SET password = ? WHERE username = ?", (hashed_pw, username))
+    conn.commit()
+    conn.close()
+
+    return redirect("/profile")
+
+
 @app.route("/logout")
 def logout():
     """登出 - 清除 session 后重定向到首页"""
