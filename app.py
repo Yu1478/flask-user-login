@@ -149,6 +149,12 @@ def login():
         username = request.form.get("username", "")
         password = request.form.get("password", "")
 
+        # CSRF 校验
+        csrf_token = request.form.get("_csrf_token", "")
+        if not validate_csrf_token(csrf_token):
+            return render_template("login.html", error="表单已过期，请重新提交",
+                                   csrf_token=generate_csrf_token())
+
         # 检查是否锁定
         if username in LOGIN_FAILURES:
             attempts, lock_time = LOGIN_FAILURES[username]
@@ -156,7 +162,8 @@ def login():
                 elapsed = (time.time() - lock_time) / 60
                 if elapsed < LOCKOUT_MINUTES:
                     remaining = int(LOCKOUT_MINUTES - elapsed)
-                    return render_template("login.html", error=f"账户已临时锁定，请 {remaining} 分钟后再试")
+                    return render_template("login.html", error=f"账户已临时锁定，请 {remaining} 分钟后再试",
+                                           csrf_token=generate_csrf_token())
                 else:
                     del LOGIN_FAILURES[username]
 
@@ -174,9 +181,10 @@ def login():
                 LOGIN_FAILURES[username] = (cnt + 1, now)
             else:
                 LOGIN_FAILURES[username] = (1, now)
-            return render_template("login.html", error="用户名或密码错误，请重试")
+            return render_template("login.html", error="用户名或密码错误，请重试",
+                                   csrf_token=generate_csrf_token())
 
-    return render_template("login.html")
+    return render_template("login.html", csrf_token=generate_csrf_token())
 
 
 @app.route("/register", methods=["GET", "POST"])
@@ -188,9 +196,16 @@ def register():
         email = request.form.get("email", "")
         phone = request.form.get("phone", "")
 
+        # CSRF 校验
+        csrf_token = request.form.get("_csrf_token", "")
+        if not validate_csrf_token(csrf_token):
+            return render_template("register.html", error="表单已过期，请重新提交",
+                                   csrf_token=generate_csrf_token())
+
         # 密码强度校验
         if len(password) < 6:
-            return render_template("register.html", error="密码长度不能少于 6 位")
+            return render_template("register.html", error="密码长度不能少于 6 位",
+                                   csrf_token=generate_csrf_token())
 
         # 密码哈希后再存入数据库
         hashed_pw = generate_password_hash(password)
@@ -205,13 +220,15 @@ def register():
             )
             conn.commit()
             conn.close()
-            return render_template("login.html", success="注册成功，请登录")
+            return render_template("login.html", success="注册成功，请登录",
+                                   csrf_token=generate_csrf_token())
         except Exception:
             conn.close()
             # 统一错误信息，不区分"用户名已存在"还是其他错误
-            return render_template("register.html", error="注册失败，请检查信息后重试")
+            return render_template("register.html", error="注册失败，请检查信息后重试",
+                                   csrf_token=generate_csrf_token())
 
-    return render_template("register.html")
+    return render_template("register.html", csrf_token=generate_csrf_token())
 
 
 @app.route("/search")
@@ -252,18 +269,28 @@ def upload():
 
     if request.method == "POST":
         file = request.files.get("file")
+
+        # CSRF 校验
+        csrf_token = request.form.get("_csrf_token", "")
+        if not validate_csrf_token(csrf_token):
+            return render_template("upload.html", error="表单已过期，请重新提交",
+                                   csrf_token=generate_csrf_token())
+
         if not file or not file.filename:
-            return render_template("upload.html", error="请选择一个文件")
+            return render_template("upload.html", error="请选择一个文件",
+                                   csrf_token=generate_csrf_token())
 
         # 检查扩展名
         if not allowed_file(file.filename):
-            return render_template("upload.html", error="只允许上传图片文件（png, jpg, jpeg, gif, webp）")
+            return render_template("upload.html", error="只允许上传图片文件（png, jpg, jpeg, gif, webp）",
+                                   csrf_token=generate_csrf_token())
 
         # 防止路径穿越：使用 secure_filename 清洗文件名
         safe_filename = secure_filename(file.filename)
         # 检查清洗后文件名是否还有扩展名（防止无扩展名文件导致 crash）
         if "." not in safe_filename:
-            return render_template("upload.html", error="无效的文件名，请重新选择文件")
+            return render_template("upload.html", error="无效的文件名，请重新选择文件",
+                                   csrf_token=generate_csrf_token())
 
         # 用 UUID 重命名，防止文件名冲突和双扩展名绕过
         ext = safe_filename.rsplit(".", 1)[1].lower()
@@ -274,23 +301,27 @@ def upload():
         try:
             file.save(file_path)
         except Exception:
-            return render_template("upload.html", error="文件保存失败，请重试")
+            return render_template("upload.html", error="文件保存失败，请重试",
+                                   csrf_token=generate_csrf_token())
 
         # 通过文件头魔数验证真实内容
         try:
             if not is_actual_image(file_path):
                 os.remove(file_path)
-                return render_template("upload.html", error="文件内容不是有效的图片，请上传真实图片文件")
+                return render_template("upload.html", error="文件内容不是有效的图片，请上传真实图片文件",
+                                       csrf_token=generate_csrf_token())
         except Exception:
             # 校验异常时清理已保存的文件
             if os.path.exists(file_path):
                 os.remove(file_path)
-            return render_template("upload.html", error="文件校验失败，请重试")
+            return render_template("upload.html", error="文件校验失败，请重试",
+                                   csrf_token=generate_csrf_token())
 
         file_url = url_for("static", filename=f"uploads/{unique_name}")
-        return render_template("upload.html", success=True, file_url=file_url, filename=unique_name)
+        return render_template("upload.html", success=True, file_url=file_url, filename=unique_name,
+                               csrf_token=generate_csrf_token())
 
-    return render_template("upload.html")
+    return render_template("upload.html", csrf_token=generate_csrf_token())
 
 
 @app.route("/profile")

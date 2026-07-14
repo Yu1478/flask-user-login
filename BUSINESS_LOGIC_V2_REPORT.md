@@ -26,20 +26,22 @@
 
 ## 一、执行摘要
 
-在本次安全审计中，对**密码修改功能**和**充值功能**进行了全面的业务逻辑漏洞排查。共发现 **5 个安全漏洞**，其中 **3 个严重级**、**2 个高危级**，已全部修复。
+在本次安全审计中，对**密码修改功能**、**充值功能**、**登录、注册、上传**共 5 个 POST 接口进行了全面的 CSRF 和业务逻辑漏洞排查。共发现 **7 个安全漏洞**，其中 **5 个严重级**、**2 个高危级**，已全部修复。
 
 | 指标 | 数值 |
 |------|------|
-| 总漏洞数 | 5 |
-| 严重（Critical） | 3 |
+| 总漏洞数 | 7 |
+| 严重（Critical） | 5 |
 | 高危（High） | 2 |
-| 已修复 | 5（100%） |
+| 已修复 | 7（100%） |
 
 ### 攻击路径
 
 ```
 攻击者 A（已登录）→ 修改密码接口 → 提交 username=admin → admin 密码被篡改 → 账户接管
-攻击者（任意）→ 构造恶意页面 → 受害者登录后触发 → CSRF 改密 → 账户接管
+攻击者 → 构造恶意页面 → 受害者登录后触发 CSRF → 改密/充值 → 账户接管
+攻击者 → Login CSRF → 受害者登录攻击者账号 → 输入隐私信息 → 信息泄露
+攻击者 → Register CSRF → 强制受害者注册账号 → 制造恶意行为记录
 攻击者（已登录）→ 修改充值表单 user_id → 给他人充负数 → 盗刷余额
 ```
 
@@ -51,9 +53,12 @@
 |------|----------|------|------|
 | VULN-401 | 越权修改他人密码 | 🔴 严重 | ✅ 已修复 |
 | VULN-402 | 修改密码无原密码校验 | 🔴 严重 | ✅ 已修复 |
-| VULN-403 | CSRF 跨站请求伪造 | 🔴 严重 | ✅ 已修复 |
-| VULN-404 | 参数篡改（充值 user_id） | 🟠 高危 | ✅ 已修复 |
-| VULN-405 | 弱密码与校验缺失 | 🟠 高危 | ✅ 已修复 |
+| VULN-403 | CSRF — 改密和充值接口 | 🔴 严重 | ✅ 已修复 |
+| VULN-404 | CSRF — 登录接口（Login CSRF） | 🔴 严重 | ✅ 已修复 |
+| VULN-405 | CSRF — 注册接口 | 🔴 严重 | ✅ 已修复 |
+| VULN-406 | CSRF — 上传接口 | 🔴 严重 | ✅ 已修复 |
+| VULN-407 | 参数篡改（充值 user_id） | 🟠 高危 | ✅ 已修复 |
+| VULN-408 | 弱密码与校验缺失 | 🟠 高危 | ✅ 已修复 |
 
 ---
 
@@ -101,7 +106,7 @@ c.execute("UPDATE users SET password = ? WHERE username = ?", ...)
 
 ---
 
-### VULN-403：CSRF 跨站请求伪造
+### VULN-403 ~ VULN-406：CSRF 跨站请求伪造（全接口覆盖）
 
 | 属性 | 值 |
 |------|----|
@@ -109,26 +114,29 @@ c.execute("UPDATE users SET password = ? WHERE username = ?", ...)
 | CWE 编号 | CWE-352: Cross-Site Request Forgery |
 | 风险等级 | 🔴 严重 |
 
-**漏洞代码：**
-```python
-@app.route("/change-password", methods=["POST"])
-def change_password():
-    # 无 CSRF token 校验
-    username = request.form.get("username", "")
-```
+**受影响接口（修复前全部无 CSRF 防护）：**
 
-**攻击场景：**
+| 路由 | 触发方式 | CSRF 危害 |
+|------|----------|----------|
+| `/login` | POST 表单 | Login CSRF：强制用户登录攻击者账号，用户后续操作（充值、输手机号）泄露给攻击者 |
+| `/register` | POST 表单 | 强制用户注册账号，制造恶意行为记录嫁祸用户 |
+| `/upload` | POST multipart | 强制用户上传文件（需登录），但浏览器跨域限制较难携带文件内容 |
+| `/recharge` | POST 表单 | 强制用户充值（需登录），盗刷余额 |
+| `/change-password` | POST 表单 | 强制修改密码（需登录），账户被接管 |
+
+**Login CSRF 攻击场景：**
 ```html
-<!-- 攻击者构造恶意页面 -->
-<form action="http://victim.com/change-password" method="POST">
-  <input type="hidden" name="username" value="victim">
-  <input type="hidden" name="new_password" value="hacked">
-  <input type="submit">
+<!-- 攻击者构造恶意页面 → 受害者不知不觉登录了攻击者的账号 -->
+<form action="http://victim.com/login" method="POST" id="f">
+  <input type="hidden" name="_csrf_token" value="xxx">
+  <input type="hidden" name="username" value="attacker">
+  <input type="hidden" name="password" value="attacker123">
 </form>
-<!-- 受害者已登录状态访问该页面 → 自动提交 → 密码被改 -->
+<script>document.getElementById('f').submit()</script>
 ```
+受害者以为在操作自己的账号，实际在攻击者的账号下操作（如输入手机号、银行卡信息），攻击者登录自己账号即可查看。
 
-**修复：** 使用 CSRF token 机制，每个表单生成唯一 token，提交时校验。
+**修复：** 所有 5 个 POST 接口统一使用 CSRF token 机制，每个表单生成唯一 token，提交时校验后销毁。
 
 ---
 
@@ -171,6 +179,16 @@ user_id = request.form.get("user_id")  # 隐藏字段可控
 
 ## 四、修复前后对比
 
+### CSRF 防护全接口覆盖
+
+| 路由 | 修复前 | 修复后 |
+|------|--------|--------|
+| `/login` | ❌ 无 CSRF | ✅ CSRF token 校验 |
+| `/register` | ❌ 无 CSRF | ✅ CSRF token 校验 |
+| `/upload` | ❌ 无 CSRF | ✅ CSRF token 校验 |
+| `/recharge` | ❌ 无 CSRF | ✅ CSRF token 校验 |
+| `/change-password` | ❌ 无 CSRF | ✅ CSRF token 校验 |
+
 ### change-password 完整对比
 
 | 维度 | 修复前 | 修复后 |
@@ -196,11 +214,14 @@ user_id = request.form.get("user_id")  # 隐藏字段可控
 |---|---------|--------|--------|------|
 | 1 | 修改他人密码（改 username 参数） | 成功篡改他人密码 | 从 session 取用户，不受表单影响 | ✅ |
 | 2 | 原密码错误时改密 | 仍可改密 | 返回"原密码错误" | ✅ |
-| 3 | 无 CSRF token 提交 | 成功改密 | 返回"表单已过期" | ✅ |
-| 4 | 密码太短（3 位） | 成功设置弱密码 | 提示"不能少于 6 位" | ✅ |
-| 5 | 两次密码不一致 | 仍可改密 | 提示"不一致" | ✅ |
-| 6 | 充值无 CSRF token | 成功充值 | 302 跳转并提示过期 | ✅ |
-| 7 | 正常改密+正常充值 | 正常 | 正常 | ✅ |
+| 3 | 无 CSRF token 提交改密 | 成功改密 | 返回"表单已过期" | ✅ |
+| 4 | 无 CSRF token 提交充值 | 成功充值 | 302 跳转并提示过期 | ✅ |
+| 5 | 无 CSRF token 提交登录 | 正常登录 | 返回"表单已过期" | ✅ |
+| 6 | 无 CSRF token 提交注册 | 正常注册 | 返回"表单已过期" | ✅ |
+| 7 | 无 CSRF token 提交上传 | 正常上传 | 返回"表单已过期" | ✅ |
+| 8 | 密码太短（3 位） | 成功设置弱密码 | 提示"不能少于 6 位" | ✅ |
+| 9 | 两次密码不一致 | 仍可改密 | 提示"不一致" | ✅ |
+| 10 | 正常改密+正常充值 | 正常 | 正常 | ✅ |
 
 ---
 
@@ -208,10 +229,10 @@ user_id = request.form.get("user_id")  # 隐藏字段可控
 
 | 优先级 | 措施 | 对应漏洞 |
 |--------|------|----------|
-| 🔴 P0 | 关键操作（改密、充值）从 session 取用户，不从表单 | VULN-401, VULN-404 |
+| 🔴 P0 | 所有 5 个 POST 接口统一加入 CSRF token 校验 | VULN-403~406 |
+| 🔴 P0 | 关键操作（改密、充值）从 session 取用户，不从表单 | VULN-401, VULN-407 |
 | 🔴 P0 | 改密必须校验原密码 | VULN-402 |
-| 🔴 P0 | 所有 POST 接口加入 CSRF 防护 | VULN-403 |
-| 🟠 P1 | 密码强度和确认密码后端校验 | VULN-405 |
+| 🟠 P1 | 密码强度和确认密码后端校验 | VULN-408 |
 
 ---
 

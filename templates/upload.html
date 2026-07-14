@@ -9,6 +9,7 @@
     {% endif %}
 
     <form method="POST" action="/upload" enctype="multipart/form-data" class="upload-form">
+        <input type="hidden" name="_csrf_token" value="{{ csrf_token }}">
         <div class="form-group">
             <label for="file" class="form-label">选择图片文件</label>
             <input type="file" id="file" name="file" class="form-input file-input">
