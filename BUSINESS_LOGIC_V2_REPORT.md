@@ -179,32 +179,222 @@ user_id = request.form.get("user_id")  # 隐藏字段可控
 
 ## 四、修复前后对比
 
-### CSRF 防护全接口覆盖
+### 1. CSRF 防护 — 后端代码（app.py）
 
-| 路由 | 修复前 | 修复后 |
-|------|--------|--------|
-| `/login` | ❌ 无 CSRF | ✅ CSRF token 校验 |
-| `/register` | ❌ 无 CSRF | ✅ CSRF token 校验 |
-| `/upload` | ❌ 无 CSRF | ✅ CSRF token 校验 |
-| `/recharge` | ❌ 无 CSRF | ✅ CSRF token 校验 |
-| `/change-password` | ❌ 无 CSRF | ✅ CSRF token 校验 |
+#### 修复前（所有 POST 接口均无 CSRF 校验）
+```python
+@app.route("/login", methods=["GET", "POST"])
+def login():
+    if request.method == "POST":
+        username = request.form.get("username", "")
+        password = request.form.get("password", "")
+        # 直接处理登录，无任何 CSRF 校验
+        ...
 
-### change-password 完整对比
+@app.route("/register", methods=["GET", "POST"])
+def register():
+    if request.method == "POST":
+        username = request.form.get("username", "")
+        password = request.form.get("password", "")
+        # 直接注册，无 CSRF 校验
+        ...
 
-| 维度 | 修复前 | 修复后 |
-|------|--------|--------|
-| 用户名来源 | 前端表单 hidden 字段 | session["username"] |
-| 原密码校验 | ❌ 无 | ✅ check_password_hash |
-| CSRF 防护 | ❌ 无 | ✅ Secret token 校验 |
-| 确认密码校验 | 仅前端（可绕过） | 后端强制校验一致 |
-| 密码强度 | 无限制 | 最少 6 位 |
+@app.route("/upload", methods=["GET", "POST"])
+def upload():
+    if request.method == "POST":
+        file = request.files.get("file")
+        # 直接保存文件，无 CSRF 校验
+        ...
 
-### recharge 完整对比
+@app.route("/recharge", methods=["POST"])
+def recharge():
+    amount = request.form.get("amount")
+    # 直接充值，无 CSRF 校验
+    ...
 
-| 维度 | 修复前 | 修复后 |
-|------|--------|--------|
-| user_id 来源 | 前端表单 hidden 字段 | session 取登录用户 ID |
-| CSRF 防护 | ❌ 无 | ✅ Secret token 校验 |
+@app.route("/change-password", methods=["POST"])
+def change_password():
+    username = request.form.get("username", "")
+    # 直接改密，无 CSRF 校验
+    ...
+```
+
+#### 修复后（统一 CSRF token 校验机制）
+```python
+# 新增 CSRF 工具函数
+def generate_csrf_token():
+    """生成 CSRF token 并存入 session"""
+    if "_csrf_token" not in session:
+        session["_csrf_token"] = secrets.token_hex(32)
+    return session["_csrf_token"]
+
+def validate_csrf_token(token):
+    """校验 CSRF token"""
+    stored = session.pop("_csrf_token", None)
+    return stored and token == stored
+
+
+# 每个 POST 路由均增加 CSRF 校验（以 change-password 为例）
+@app.route("/change-password", methods=["POST"])
+def change_password():
+    if "username" not in session:
+        return redirect("/login")
+
+    # CSRF 校验
+    csrf_token = request.form.get("_csrf_token", "")
+    if not validate_csrf_token(csrf_token):
+        return render_template("profile.html", error="表单已过期，请重新提交",
+                               user=get_user_by_username(session["username"]),
+                               csrf_token=generate_csrf_token())
+    
+    old_password = request.form.get("old_password", "")
+    new_password = request.form.get("new_password", "")
+    ...
+```
+
+### 2. CSRF 防护 — 前端模板（所有表单增加隐藏字段）
+
+#### 修复前（login.html）
+```html
+<form method="POST" action="/login" class="login-form">
+    <div class="form-group">
+        <label for="username">用户名</label>
+        <input type="text" name="username" required>
+    </div>
+    <div class="form-group">
+        <label for="password">密码</label>
+        <input type="password" name="password" required>
+    </div>
+    <button type="submit">登录</button>
+</form>
+```
+
+#### 修复后（login.html）
+```html
+<form method="POST" action="/login" class="login-form">
+    <input type="hidden" name="_csrf_token" value="{{ csrf_token }}">
+    <div class="form-group">
+        <label for="username">用户名</label>
+        <input type="text" name="username" required>
+    </div>
+    <div class="form-group">
+        <label for="password">密码</label>
+        <input type="password" name="password" required>
+    </div>
+    <button type="submit">登录</button>
+</form>
+```
+
+> 所有 5 个 POST 表单（login.html、register.html、upload.html、profile.html 中的 recharge 和 change-password 表单）均增加了 `<input type="hidden" name="_csrf_token" value="{{ csrf_token }}">`
+
+### 3. 越权修改密码（VULN-401）
+
+#### 修复前
+```python
+@app.route("/change-password", methods=["POST"])
+def change_password():
+    # username 从前端表单获取，用户可任意修改
+    username = request.form.get("username", "")
+    new_password = request.form.get("new_password", "")
+
+    hashed_pw = generate_password_hash(new_password)
+    c.execute("UPDATE users SET password = ? WHERE username = ?",
+              (hashed_pw, username))  # ← 用表单传入的 username 更新
+```
+
+#### 修复后
+```python
+@app.route("/change-password", methods=["POST"])
+def change_password():
+    # username 从 session 获取，忽略表单参数
+    username = session["username"]  # ← 只从 session 取
+
+    # 验证原密码
+    user_full = get_user_full(username)
+    if not user_full or not check_password_hash(user_full["password"], old_password):
+        return render_template("profile.html", error="原密码错误", ...)
+
+    hashed_pw = generate_password_hash(new_password)
+    c.execute("UPDATE users SET password = ? WHERE username = ?",
+              (hashed_pw, username))  # ← 用 session 中的 username 更新
+```
+
+### 4. 缺少原密码校验（VULN-402）
+
+#### 修复前
+```python
+new_password = request.form.get("new_password", "")
+hashed_pw = generate_password_hash(new_password)
+c.execute("UPDATE users SET password = ? WHERE username = ?", (hashed_pw, username))
+# 直接改，不校验旧密码
+```
+
+#### 修复后
+```python
+# 校验原密码
+old_password = request.form.get("old_password", "")
+user_full = get_user_full(username)
+if not user_full or not check_password_hash(user_full["password"], old_password):
+    return render_template("profile.html", error="原密码错误", ...)
+
+# 校验新密码长度
+if len(new_password) < 6:
+    return render_template("profile.html", error="新密码长度不能少于 6 位", ...)
+
+# 校验确认密码
+if new_password != confirm_password:
+    return render_template("profile.html", error="两次密码输入不一致", ...)
+
+# 通过全部校验后再更新
+hashed_pw = generate_password_hash(new_password)
+c.execute("UPDATE users SET password = ? WHERE username = ?", (hashed_pw, username))
+```
+
+### 5. 参数篡改 — 充值 user_id（VULN-407）
+
+#### 修复前
+```html
+<!-- profile.html 模板中 -->
+<form method="POST" action="/recharge">
+    <input type="hidden" name="user_id" value="{{ user.id }}">
+    <input type="number" name="amount">
+    <button type="submit">充值</button>
+</form>
+```
+```python
+# app.py 中
+user_id = request.form.get("user_id")  # 前端隐藏字段传入，可篡改
+amount = request.form.get("amount")
+c.execute("UPDATE users SET balance = balance + ? WHERE id = ?", (amount, user_id))
+```
+
+#### 修复后
+```html
+<!-- profile.html 模板中 — 移除 user_id 隐藏字段 -->
+<form method="POST" action="/recharge">
+    <input type="hidden" name="_csrf_token" value="{{ csrf_token }}">
+    <input type="number" name="amount">
+    <button type="submit">充值</button>
+</form>
+```
+```python
+# app.py 中 — user_id 从 session 获取
+username = session["username"]
+user_info = get_user_by_username(username)
+# user_info["id"] 从数据库查出的当前登录用户 ID，不可篡改
+c.execute("UPDATE users SET balance = balance + ? WHERE id = ?",
+          (amount, user_info["id"]))
+```
+
+### 6. CSRF 全接口覆盖对照表
+
+| 路由 | 修复前（后端） | 修复后（后端） | 修复前（模板） | 修复后（模板） |
+|------|---------------|---------------|---------------|---------------|
+| `/login` | 无 CSRF 校验 | `validate_csrf_token()` | 无隐藏字段 | `name="_csrf_token"` |
+| `/register` | 无 CSRF 校验 | `validate_csrf_token()` | 无隐藏字段 | `name="_csrf_token"` |
+| `/upload` | 无 CSRF 校验 | `validate_csrf_token()` | 无隐藏字段 | `name="_csrf_token"` |
+| `/recharge` | 无 CSRF 校验 | `validate_csrf_token()` | 无隐藏字段 | `name="_csrf_token"` |
+| `/change-password` | 无 CSRF 校验 | `validate_csrf_token()` | 无隐藏字段 | `name="_csrf_token"` |
 
 ---
 
