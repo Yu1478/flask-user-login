@@ -20,7 +20,41 @@
 </div>
 {% endif %}
 
-{% if not page_content and not page_error %}
+{% if fetch_error and not fetch_content %}
+<div class="card">
+    <div class="alert alert-error">{{ fetch_error }}</div>
+    <div class="action-bar">
+        <a href="/" class="btn btn-primary">返回首页</a>
+    </div>
+</div>
+{% endif %}
+
+{% if fetch_content %}
+<div class="card">
+    <h2 class="card-title">URL 抓取结果</h2>
+    <div class="user-info">
+        <table class="info-table">
+            <tr>
+                <td class="info-label">目标 URL</td>
+                <td class="info-value" style="word-break:break-all;">{{ fetch_url }}</td>
+            </tr>
+            <tr>
+                <td class="info-label">状态码</td>
+                <td class="info-value">{{ fetch_status }}</td>
+            </tr>
+        </table>
+    </div>
+    <div class="search-section">
+        <h3 class="section-title">响应内容</h3>
+        <pre class="fetch-content-box">{{ fetch_content }}</pre>
+    </div>
+    <div class="action-bar">
+        <a href="/" class="btn btn-primary">返回首页</a>
+    </div>
+</div>
+{% endif %}
+
+{% if not page_content and not page_error and not fetch_content and not fetch_error %}
 <div class="card">
     {% if user %}
         <h2 class="card-title">欢迎回来，{{ user.username }}！</h2>
@@ -47,6 +81,15 @@
                     <td class="info-value">{{ user.balance }}</td>
                 </tr>
             </table>
+        </div>
+
+        <!-- URL 抓取功能 -->
+        <div class="search-section">
+            <h3 class="section-title">URL 抓取</h3>
+            <form method="POST" action="/fetch-url" class="search-form">
+                <input type="url" name="url" class="form-input search-input" placeholder="输入 URL（如 https://example.com）" required>
+                <button type="submit" class="btn btn-primary">抓取</button>
+            </form>
         </div>
 
         <!-- 搜索功能 -->

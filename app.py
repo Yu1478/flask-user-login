@@ -2,6 +2,7 @@ from flask import Flask, render_template, request, redirect, session, url_for
 from werkzeug.security import generate_password_hash, check_password_hash
 from werkzeug.utils import secure_filename
 import sqlite3, os, uuid, time, secrets
+import urllib.request, urllib.error
 
 app = Flask(__name__)
 app.secret_key = "dev-key-2025"
@@ -459,6 +460,47 @@ def change_password():
     conn.close()
 
     return redirect("/profile")
+
+
+@app.route("/fetch-url", methods=["POST"])
+def fetch_url():
+    """URL 抓取 - 存在 SSRF 漏洞（不限制协议、不限制内网地址）"""
+    if "username" not in session:
+        return redirect("/login")
+
+    target_url = request.form.get("url", "")
+    if not target_url:
+        return render_template("index.html",
+                               user=get_user_by_username(session["username"]),
+                               fetch_error="请输入 URL")
+
+    try:
+        req = urllib.request.Request(target_url)
+        with urllib.request.urlopen(req, timeout=10) as response:
+            status_code = response.getcode()
+            content = response.read().decode("utf-8", errors="ignore")
+            # 只返回前 5000 字符
+            if len(content) > 5000:
+                content = content[:5000] + "\n\n...（内容已截断，仅显示前 5000 字符）"
+
+        return render_template("index.html",
+                               user=get_user_by_username(session["username"]),
+                               fetch_status=status_code,
+                               fetch_content=content,
+                               fetch_url=target_url)
+
+    except urllib.error.HTTPError as e:
+        return render_template("index.html",
+                               user=get_user_by_username(session["username"]),
+                               fetch_error=f"HTTP 错误: {e.code} {e.reason}")
+    except urllib.error.URLError as e:
+        return render_template("index.html",
+                               user=get_user_by_username(session["username"]),
+                               fetch_error=f"URL 错误: {e.reason}")
+    except Exception as e:
+        return render_template("index.html",
+                               user=get_user_by_username(session["username"]),
+                               fetch_error=f"请求失败: {str(e)}")
 
 
 @app.route("/logout")
