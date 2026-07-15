@@ -2,7 +2,8 @@ from flask import Flask, render_template, request, redirect, session, url_for
 from werkzeug.security import generate_password_hash, check_password_hash
 from werkzeug.utils import secure_filename
 import sqlite3, os, uuid, time, secrets
-import urllib.request, urllib.error
+import urllib.request, urllib.error, urllib.parse
+import socket
 
 app = Flask(__name__)
 app.secret_key = "dev-key-2025"
@@ -462,9 +463,54 @@ def change_password():
     return redirect("/profile")
 
 
+def is_internal_ip(hostname):
+    """检查主机名是否解析到内网/保留地址"""
+    try:
+        # 检查是否为 localhost 字符串
+        if hostname.lower() in ("localhost", "localhost.localdomain"):
+            return True
+
+        # 解析域名获取 IP 地址
+        addrs = socket.getaddrinfo(hostname, None)
+        for addr in addrs:
+            ip = addr[4][0]
+
+            # 检查 IPv6 回环地址
+            if ip == "::1":
+                return True
+
+            # 检查 IPv4 内网地址
+            parts = ip.split(".")
+            if len(parts) == 4:
+                first = int(parts[0])
+                second = int(parts[1])
+                # 127.x.x.x — 回环地址
+                if first == 127:
+                    return True
+                # 10.x.x.x — A 类私有地址
+                if first == 10:
+                    return True
+                # 172.16-31.x.x — B 类私有地址
+                if first == 172 and 16 <= second <= 31:
+                    return True
+                # 192.168.x.x — C 类私有地址
+                if first == 192 and second == 168:
+                    return True
+                # 0.0.0.0 — 未指定地址
+                if first == 0:
+                    return True
+                # 169.254.x.x — 链路本地地址
+                if first == 169 and second == 254:
+                    return True
+        return False
+    except Exception:
+        # 解析失败时拒绝（安全优先）
+        return True
+
+
 @app.route("/fetch-url", methods=["POST"])
 def fetch_url():
-    """URL 抓取 - 存在 SSRF 漏洞（不限制协议、不限制内网地址）"""
+    """URL 抓取 - 修复 SSRF 漏洞"""
     if "username" not in session:
         return redirect("/login")
 
@@ -474,12 +520,29 @@ def fetch_url():
                                user=get_user_by_username(session["username"]),
                                fetch_error="请输入 URL")
 
+    # ① 检查协议（仅允许 http 和 https）
+    parsed = urllib.parse.urlparse(target_url)
+    if parsed.scheme not in ("http", "https"):
+        return render_template("index.html",
+                               user=get_user_by_username(session["username"]),
+                               fetch_error="不支持的协议，仅允许 http 和 https")
+
+    if not parsed.hostname:
+        return render_template("index.html",
+                               user=get_user_by_username(session["username"]),
+                               fetch_error="URL 格式无效")
+
+    # ② 检查目标是否为内网地址（SSRF 防护）
+    if is_internal_ip(parsed.hostname):
+        return render_template("index.html",
+                               user=get_user_by_username(session["username"]),
+                               fetch_error="不允许访问内网地址")
+
     try:
         req = urllib.request.Request(target_url)
         with urllib.request.urlopen(req, timeout=10) as response:
             status_code = response.getcode()
             content = response.read().decode("utf-8", errors="ignore")
-            # 只返回前 5000 字符
             if len(content) > 5000:
                 content = content[:5000] + "\n\n...（内容已截断，仅显示前 5000 字符）"
 
