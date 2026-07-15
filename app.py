@@ -479,11 +479,21 @@ def is_internal_ip(hostname):
             if ip == "::1":
                 return True
 
-            # 检查 IPv4 内网地址
-            parts = ip.split(".")
+            # 检查 IPv4 mapped IPv6 地址（::ffff:x.x.x.x）
+            if ip.startswith("::ffff:"):
+                ipv4_part = ip[7:]  # 去掉 "::ffff:" 前缀
+            else:
+                ipv4_part = ip
+
+            # 按 IPv4 地址格式检查
+            parts = ipv4_part.split(".")
             if len(parts) == 4:
-                first = int(parts[0])
-                second = int(parts[1])
+                try:
+                    first = int(parts[0])
+                    second = int(parts[1])
+                except ValueError:
+                    continue  # 非纯数字的 IP 段，跳过
+
                 # 127.x.x.x — 回环地址
                 if first == 127:
                     return True
@@ -502,6 +512,7 @@ def is_internal_ip(hostname):
                 # 169.254.x.x — 链路本地地址
                 if first == 169 and second == 254:
                     return True
+
         return False
     except Exception:
         # 解析失败时拒绝（安全优先）
@@ -540,7 +551,14 @@ def fetch_url():
 
     try:
         req = urllib.request.Request(target_url)
-        with urllib.request.urlopen(req, timeout=10) as response:
+
+        # ③ 禁用重定向（防止 302 跳转到内网地址的 SSRF 绕过）
+        class NoRedirect(urllib.request.HTTPRedirectHandler):
+            def redirect_request(self, req, fp, code, msg, headers, newurl):
+                return None
+        opener = urllib.request.build_opener(NoRedirect)
+
+        with opener.open(req, timeout=10) as response:
             status_code = response.getcode()
             content = response.read().decode("utf-8", errors="ignore")
             if len(content) > 5000:
