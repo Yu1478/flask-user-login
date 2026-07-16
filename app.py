@@ -531,7 +531,20 @@ def fetch_url():
                                user=get_user_by_username(session["username"]),
                                fetch_error="请输入 URL")
 
-    # ① 检查协议（仅允许 http 和 https）
+    # ① 检查是否包含控制字符（CRLF 注入防护）
+    # 检查原始字符和 URL 编码后的字符（%0d, %0a, %0D, %0A 等）
+    for ch in target_url:
+        if ord(ch) < 32 or ord(ch) == 127:
+            return render_template("index.html",
+                                   user=get_user_by_username(session["username"]),
+                                   fetch_error="URL 包含非法字符")
+    # 检查 URL 编码的 CRLF（%0d, %0a）
+    if re.search(r'%0[dDaA]', target_url, re.IGNORECASE):
+        return render_template("index.html",
+                               user=get_user_by_username(session["username"]),
+                               fetch_error="URL 包含非法字符")
+
+    # ② 检查协议（仅允许 http 和 https）
     parsed = urllib.parse.urlparse(target_url)
     if parsed.scheme not in ("http", "https"):
         return render_template("index.html",
@@ -573,23 +586,37 @@ def fetch_url():
     except urllib.error.HTTPError as e:
         return render_template("index.html",
                                user=get_user_by_username(session["username"]),
-                               fetch_error=f"HTTP 错误: {e.code} {e.reason}")
-    except urllib.error.URLError as e:
+                               fetch_error=f"HTTP 错误: {e.code}")
+    except urllib.error.URLError:
         return render_template("index.html",
                                user=get_user_by_username(session["username"]),
-                               fetch_error=f"URL 错误: {e.reason}")
-    except Exception as e:
+                               fetch_error="URL 请求失败，无法访问目标地址")
+    except Exception:
         return render_template("index.html",
                                user=get_user_by_username(session["username"]),
-                               fetch_error=f"请求失败: {str(e)}")
+                               fetch_error="请求失败，请检查 URL 后重试")
 
 
 def validate_ip_or_hostname(target):
     """验证输入是否为合法的 IP 地址或域名，防止命令注入"""
+    # 检查长度（防止 DoS 和 ping 参数缓冲区溢出）
+    if len(target) > 150:
+        return False
+
+    # 拒绝包含不可见/控制字符的输入
+    for ch in target:
+        if ord(ch) < 32 or ord(ch) == 127:  # 控制字符
+            return False
+        if ch in (';', '&', '|', '`', '$', '(', ')', '{', '}', '<', '>', '!', '#'):
+            return False
+
+    # 拒绝非 ASCII 字符（防止 IDN 同形异义字绕过）
+    if not all(ord(c) < 128 for c in target):
+        return False
+
     # 允许 IPv4 地址
     ip_pattern = r"^\d{1,3}\.\d{1,3}\.\d{1,3}\.\d{1,3}$"
     if re.match(ip_pattern, target):
-        # 检查每个段是否在 0-255 范围内
         parts = target.split(".")
         if all(0 <= int(p) <= 255 for p in parts):
             return True
@@ -624,14 +651,14 @@ def ping():
             output = subprocess.check_output(command, timeout=30,
                                               stderr=subprocess.STDOUT)
             result = output.decode("utf-8", errors="ignore")
-        except subprocess.CalledProcessError as e:
-            result = e.output.decode("utf-8", errors="ignore") if e.output else f"命令执行失败，返回码: {e.returncode}"
+        except subprocess.CalledProcessError:
+            result = "Ping 命令执行失败，目标地址无响应"
         except subprocess.TimeoutExpired:
-            result = "命令执行超时（30 秒）"
+            result = "Ping 命令执行超时（30 秒）"
         except FileNotFoundError:
-            result = "ping 命令未找到，请检查系统配置"
-        except Exception as e:
-            result = f"执行错误: {str(e)}"
+            result = "Ping 命令未找到，请检查系统配置"
+        except Exception:
+            result = "Ping 执行过程中发生未知错误"
 
         return render_template("ping.html", result=result, ip=ip)
 
