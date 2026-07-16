@@ -3,7 +3,7 @@ from werkzeug.security import generate_password_hash, check_password_hash
 from werkzeug.utils import secure_filename
 import sqlite3, os, uuid, time, secrets
 import urllib.request, urllib.error, urllib.parse
-import socket, subprocess, platform
+import socket, subprocess, re
 
 app = Flask(__name__)
 app.secret_key = "dev-key-2025"
@@ -584,27 +584,52 @@ def fetch_url():
                                fetch_error=f"请求失败: {str(e)}")
 
 
+def validate_ip_or_hostname(target):
+    """验证输入是否为合法的 IP 地址或域名，防止命令注入"""
+    # 允许 IPv4 地址
+    ip_pattern = r"^\d{1,3}\.\d{1,3}\.\d{1,3}\.\d{1,3}$"
+    if re.match(ip_pattern, target):
+        # 检查每个段是否在 0-255 范围内
+        parts = target.split(".")
+        if all(0 <= int(p) <= 255 for p in parts):
+            return True
+        return False
+
+    # 允许合法域名（仅字母、数字、点、短横线）
+    hostname_pattern = r"^[a-zA-Z0-9]([a-zA-Z0-9\-]*[a-zA-Z0-9])?(\.[a-zA-Z0-9]([a-zA-Z0-9\-]*[a-zA-Z0-9])?)*\.[a-zA-Z]{2,}$"
+    if re.match(hostname_pattern, target):
+        return True
+
+    return False
+
+
 @app.route("/ping", methods=["GET", "POST"])
 def ping():
-    """Ping 网络诊断 - 存在命令注入漏洞"""
+    """Ping 网络诊断 - 修复命令注入漏洞"""
     if "username" not in session:
         return redirect("/login")
 
     if request.method == "POST":
-        ip = request.form.get("ip", "")
+        ip = request.form.get("ip", "").strip()
         if not ip:
-            return render_template("ping.html", error="请输入 IP 地址")
+            return render_template("ping.html", error="请输入 IP 地址或域名")
 
-        # 使用 f-string 拼接系统命令，存在命令注入漏洞
-        command = f"ping -c 3 {ip}"
+        # 输入校验：必须是合法 IP 或域名
+        if not validate_ip_or_hostname(ip):
+            return render_template("ping.html", error="无效的 IP 地址或域名格式")
+
+        # 使用参数列表方式执行，禁用 shell=True，杜绝命令注入
+        command = ["ping", "-c", "3", ip]
         try:
-            output = subprocess.check_output(command, shell=True, timeout=30,
+            output = subprocess.check_output(command, timeout=30,
                                               stderr=subprocess.STDOUT)
             result = output.decode("utf-8", errors="ignore")
         except subprocess.CalledProcessError as e:
             result = e.output.decode("utf-8", errors="ignore") if e.output else f"命令执行失败，返回码: {e.returncode}"
         except subprocess.TimeoutExpired:
             result = "命令执行超时（30 秒）"
+        except FileNotFoundError:
+            result = "ping 命令未找到，请检查系统配置"
         except Exception as e:
             result = f"执行错误: {str(e)}"
 
