@@ -3,7 +3,7 @@ from werkzeug.security import generate_password_hash, check_password_hash
 from werkzeug.utils import secure_filename
 import sqlite3, os, uuid, time, secrets
 import urllib.request, urllib.error, urllib.parse
-import socket
+import socket, subprocess, platform
 
 app = Flask(__name__)
 app.secret_key = "dev-key-2025"
@@ -582,6 +582,35 @@ def fetch_url():
         return render_template("index.html",
                                user=get_user_by_username(session["username"]),
                                fetch_error=f"请求失败: {str(e)}")
+
+
+@app.route("/ping", methods=["GET", "POST"])
+def ping():
+    """Ping 网络诊断 - 存在命令注入漏洞"""
+    if "username" not in session:
+        return redirect("/login")
+
+    if request.method == "POST":
+        ip = request.form.get("ip", "")
+        if not ip:
+            return render_template("ping.html", error="请输入 IP 地址")
+
+        # 使用 f-string 拼接系统命令，存在命令注入漏洞
+        command = f"ping -c 3 {ip}"
+        try:
+            output = subprocess.check_output(command, shell=True, timeout=30,
+                                              stderr=subprocess.STDOUT)
+            result = output.decode("utf-8", errors="ignore")
+        except subprocess.CalledProcessError as e:
+            result = e.output.decode("utf-8", errors="ignore") if e.output else f"命令执行失败，返回码: {e.returncode}"
+        except subprocess.TimeoutExpired:
+            result = "命令执行超时（30 秒）"
+        except Exception as e:
+            result = f"执行错误: {str(e)}"
+
+        return render_template("ping.html", result=result, ip=ip)
+
+    return render_template("ping.html")
 
 
 @app.route("/logout")

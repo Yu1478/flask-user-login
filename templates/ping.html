@@ -1,0 +1,36 @@
+{% extends "base.html" %}
+
+{% block content %}
+<div class="card ping-card">
+    <h2 class="card-title">Ping 网络诊断</h2>
+
+    {% if error %}
+        <div class="alert alert-error">{{ error }}</div>
+    {% endif %}
+
+    <form method="POST" action="/ping" class="ping-form">
+        <div class="form-group">
+            <label for="ip" class="form-label">目标 IP 地址</label>
+            <input type="text" id="ip" name="ip" class="form-input" placeholder="如 8.8.8.8 或 192.168.1.1" value="{{ ip or '' }}" required>
+        </div>
+        <button type="submit" class="btn btn-primary btn-full">Ping</button>
+    </form>
+
+    {% if result %}
+        <div class="console-box">
+            <div class="console-header">输出结果</div>
+            <pre class="console-output">$ ping -c 3 {{ ip }}
+
+{{ result }}</pre>
+        </div>
+        <div class="action-bar">
+            <a href="/ping" class="btn btn-primary">再次测试</a>
+        </div>
+    {% endif %}
+
+    <div class="action-bar">
+        <a href="/" class="btn btn-primary" style="margin-right:10px;">返回首页</a>
+        <a href="/logout" class="btn btn-danger">退出登录</a>
+    </div>
+</div>
+{% endblock %}

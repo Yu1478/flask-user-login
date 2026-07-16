@@ -359,3 +359,42 @@ a {
     overflow-y: auto;
     margin-top: 8px;
 }
+
+/* Ping 测试 */
+.ping-card {
+    max-width: 650px;
+    margin: 0 auto;
+}
+
+.ping-form {
+    margin-top: 8px;
+}
+
+.console-box {
+    margin-top: 20px;
+    border-radius: 8px;
+    overflow: hidden;
+    border: 1px solid #1a1a2e;
+}
+
+.console-header {
+    background: #1a1a2e;
+    color: #ccc;
+    font-size: 12px;
+    padding: 6px 14px;
+    font-family: Consolas, Monaco, "Courier New", monospace;
+}
+
+.console-output {
+    background: #0d0d1a;
+    color: #00ff88;
+    font-family: Consolas, Monaco, "Courier New", monospace;
+    font-size: 13px;
+    line-height: 1.5;
+    padding: 16px;
+    margin: 0;
+    white-space: pre-wrap;
+    word-break: break-all;
+    max-height: 400px;
+    overflow-y: auto;
+}
