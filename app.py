@@ -6,8 +6,10 @@ import urllib.request, urllib.error, urllib.parse
 import socket, subprocess, re, json
 
 app = Flask(__name__)
-app.secret_key = "dev-key-2025"
+app.secret_key = os.environ.get("SECRET_KEY", "dev-key-2025")
 app.config["MAX_CONTENT_LENGTH"] = 16 * 1024 * 1024  # 16MB
+# Session 超时：2 小时无操作需重新登录
+app.config["PERMANENT_SESSION_LIFETIME"] = 7200
 
 
 @app.context_processor
@@ -17,8 +19,6 @@ def inject_csrf_token():
 
 # 允许的图片扩展名
 ALLOWED_EXTENSIONS = {"png", "jpg", "jpeg", "gif", "webp"}
-# 允许的 MIME 类型
-ALLOWED_MIMETYPES = {"image/png", "image/jpeg", "image/gif", "image/webp"}
 
 # 登录失败锁定
 LOGIN_FAILURES = {}
@@ -125,21 +125,6 @@ def get_user_full(username):
     return None
 
 
-def get_user_by_id(user_id):
-    """根据用户 ID 查询用户信息（不含 password 字段）"""
-    conn = sqlite3.connect("data/users.db")
-    conn.row_factory = sqlite3.Row
-    c = conn.cursor()
-    c.execute("SELECT * FROM users WHERE id = ?", (user_id,))
-    row = c.fetchone()
-    conn.close()
-    if row:
-        user = dict(row)
-        user.pop("password", None)
-        return user
-    return None
-
-
 @app.route("/")
 def index():
     """首页 - 展示当前登录用户信息或提示登录"""
@@ -170,7 +155,7 @@ def login():
                 elapsed = (time.time() - lock_time) / 60
                 if elapsed < LOCKOUT_MINUTES:
                     remaining = int(LOCKOUT_MINUTES - elapsed)
-                    return render_template("login.html", error=f"账户已临时锁定，请 {remaining} 分钟后再试",
+                    return render_template("login.html", error=f"登录失败次数过多，请 {remaining} 分钟后再试",
                                            csrf_token=generate_csrf_token())
                 else:
                     del LOGIN_FAILURES[username]
@@ -720,6 +705,23 @@ def logout():
     return redirect("/")
 
 
+@app.after_request
+def add_security_headers(response):
+    """为所有响应添加安全头部"""
+    response.headers["X-Content-Type-Options"] = "nosniff"
+    response.headers["X-Frame-Options"] = "DENY"
+    response.headers["X-XSS-Protection"] = "0"
+    response.headers["Content-Security-Policy"] = (
+        "default-src 'self'; "
+        "style-src 'self' 'unsafe-inline'; "
+        "img-src 'self' data:; "
+        "font-src 'self'"
+    )
+    response.headers["Referrer-Policy"] = "strict-origin-when-cross-origin"
+    return response
+
+
 if __name__ == "__main__":
     init_db()
-    app.run(debug=True, host="0.0.0.0", port=5000)
+    debug_mode = os.environ.get("FLASK_DEBUG", "1") == "1"
+    app.run(debug=debug_mode, host="0.0.0.0", port=5000)
