@@ -667,7 +667,7 @@ def ping():
 
 @app.route("/xml-import", methods=["GET", "POST"])
 def xml_import():
-    """XML 数据导入 - 存在 XXE 漏洞"""
+    """XML 数据导入 - 修复 XXE 漏洞"""
     if "username" not in session:
         return redirect("/login")
 
@@ -676,25 +676,11 @@ def xml_import():
         if not xml_data:
             return render_template("xml_import.html", error="请输入 XML 数据")
 
-        import xml.etree.ElementTree as ET
-
         try:
-            # 检测 XML 中的 <!ENTITY 定义，提取 SYSTEM 后面的文件路径
-            # 手动读取文件内容替换实体引用（存在 XXE 漏洞）
-            entity_pattern = re.compile(r'<!ENTITY\s+\w+\s+SYSTEM\s+"([^"]+)"')
-            entity_matches = entity_pattern.findall(xml_data)
+            # 使用 defusedxml 替代 xml.etree.ElementTree，防止 XXE 和 亿 laugh 攻击
+            import defusedxml.ElementTree as ET
 
-            for filepath in entity_matches:
-                try:
-                    with open(filepath, "r", encoding="utf-8") as f:
-                        file_content = f.read()
-                    # 将 &xxe; 等实体引用替换为文件内容
-                    xml_data = re.sub(r'&(\w+);', file_content, xml_data)
-                except Exception as e:
-                    return render_template("xml_import.html",
-                                           error=f"读取文件失败: {str(e)}")
-
-            # 解析替换后的 XML，提取 user 节点的 name 和 email
+            # 直接解析 XML，禁用外部实体解析
             root = ET.fromstring(xml_data)
 
             results = []
@@ -706,12 +692,9 @@ def xml_import():
             json_result = json.dumps(results, ensure_ascii=False, indent=2)
             return render_template("xml_import.html", result=json_result)
 
-        except ET.ParseError as e:
+        except Exception:
             return render_template("xml_import.html",
-                                   error=f"XML 解析失败: {e}")
-        except Exception as e:
-            return render_template("xml_import.html",
-                                   error=f"处理失败: {str(e)}")
+                                   error="XML 解析失败，请检查格式是否正确")
 
     return render_template("xml_import.html")
 
