@@ -3,7 +3,7 @@ from werkzeug.security import generate_password_hash, check_password_hash
 from werkzeug.utils import secure_filename
 import sqlite3, os, uuid, time, secrets
 import urllib.request, urllib.error, urllib.parse
-import socket, subprocess, re
+import socket, subprocess, re, json
 
 app = Flask(__name__)
 app.secret_key = "dev-key-2025"
@@ -663,6 +663,57 @@ def ping():
         return render_template("ping.html", result=result, ip=ip)
 
     return render_template("ping.html")
+
+
+@app.route("/xml-import", methods=["GET", "POST"])
+def xml_import():
+    """XML 数据导入 - 存在 XXE 漏洞"""
+    if "username" not in session:
+        return redirect("/login")
+
+    if request.method == "POST":
+        xml_data = request.form.get("xml_data", "")
+        if not xml_data:
+            return render_template("xml_import.html", error="请输入 XML 数据")
+
+        import xml.etree.ElementTree as ET
+
+        try:
+            # 检测 XML 中的 <!ENTITY 定义，提取 SYSTEM 后面的文件路径
+            # 手动读取文件内容替换实体引用（存在 XXE 漏洞）
+            entity_pattern = re.compile(r'<!ENTITY\s+\w+\s+SYSTEM\s+"([^"]+)"')
+            entity_matches = entity_pattern.findall(xml_data)
+
+            for filepath in entity_matches:
+                try:
+                    with open(filepath, "r", encoding="utf-8") as f:
+                        file_content = f.read()
+                    # 将 &xxe; 等实体引用替换为文件内容
+                    xml_data = re.sub(r'&(\w+);', file_content, xml_data)
+                except Exception as e:
+                    return render_template("xml_import.html",
+                                           error=f"读取文件失败: {str(e)}")
+
+            # 解析替换后的 XML，提取 user 节点的 name 和 email
+            root = ET.fromstring(xml_data)
+
+            results = []
+            for user_elem in root.findall("user"):
+                name = user_elem.findtext("name", "")
+                email = user_elem.findtext("email", "")
+                results.append({"name": name, "email": email})
+
+            json_result = json.dumps(results, ensure_ascii=False, indent=2)
+            return render_template("xml_import.html", result=json_result)
+
+        except ET.ParseError as e:
+            return render_template("xml_import.html",
+                                   error=f"XML 解析失败: {e}")
+        except Exception as e:
+            return render_template("xml_import.html",
+                                   error=f"处理失败: {str(e)}")
+
+    return render_template("xml_import.html")
 
 
 @app.route("/logout")
