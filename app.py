@@ -680,8 +680,8 @@ def xml_import():
             # 使用 defusedxml 替代 xml.etree.ElementTree，防止 XXE 和 亿 laugh 攻击
             import defusedxml.ElementTree as ET
 
-            # 直接解析 XML，禁用外部实体解析
-            root = ET.fromstring(xml_data)
+            # 显式禁止 DTD、实体、外部访问（三重防护）
+            root = ET.fromstring(xml_data, forbid_dtd=True, forbid_entities=True, forbid_external=True)
 
             results = []
             for user_elem in root.findall("user"):

