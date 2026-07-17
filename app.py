@@ -9,6 +9,12 @@ app = Flask(__name__)
 app.secret_key = "dev-key-2025"
 app.config["MAX_CONTENT_LENGTH"] = 16 * 1024 * 1024  # 16MB
 
+
+@app.context_processor
+def inject_csrf_token():
+    """全局注入 CSRF token 到所有模板"""
+    return dict(csrf_token=generate_csrf_token())
+
 # 允许的图片扩展名
 ALLOWED_EXTENSIONS = {"png", "jpg", "jpeg", "gif", "webp"}
 # 允许的 MIME 类型
@@ -699,9 +705,17 @@ def xml_import():
     return render_template("xml_import.html")
 
 
-@app.route("/logout")
+@app.route("/logout", methods=["POST"])
 def logout():
-    """登出 - 清除 session 后重定向到首页"""
+    """登出 - 需 CSRF token 校验"""
+    if "username" not in session:
+        return redirect("/login")
+
+    # CSRF 校验
+    csrf_token = request.form.get("_csrf_token", "")
+    if not validate_csrf_token(csrf_token):
+        return redirect("/")
+
     session.pop("username", None)
     return redirect("/")
 

@@ -59,6 +59,27 @@ a {
     border-color: #fff;
 }
 
+.navbar-form {
+    display: inline;
+}
+
+.navbar-link-btn {
+    background: none;
+    border: 1px solid rgba(255, 255, 255, 0.7);
+    border-radius: 4px;
+    color: #fff;
+    font-size: 14px;
+    padding: 6px 14px;
+    cursor: pointer;
+    font-family: inherit;
+    transition: background-color 0.2s, border-color 0.2s;
+}
+
+.navbar-link-btn:hover {
+    background-color: rgba(255, 255, 255, 0.15);
+    border-color: #fff;
+}
+
 /* 主容器 */
 .container {
     max-width: 600px;
